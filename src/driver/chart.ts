@@ -3,6 +3,7 @@ import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { withBeforeUnloadAccept } from './dialogs.js';
 import { assertTradingViewChartUrl } from './chartUrl.js';
+import { NAVIGATION_TIMEOUT_MS } from './connection.js';
 import { parseChartLabel, type ChartLabel } from '../parsers/chart.js';
 
 export async function readChartLabel(page: Page): Promise<ChartLabel | null> {
@@ -45,7 +46,7 @@ export async function navigateToChart(
   if (args.symbol) url.searchParams.set('symbol', args.symbol);
   if (args.interval) url.searchParams.set('interval', args.interval);
   await withBeforeUnloadAccept(page, async () => {
-    await page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
+    await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
     await page.locator(SEL.chartCanvas).first().waitFor({ timeout: 30_000 });
   });
   return page.url();

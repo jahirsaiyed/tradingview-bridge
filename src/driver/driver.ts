@@ -11,7 +11,7 @@ import { createPageLayoutOps } from './pageLayoutOps.js';
 import { readPineLogs } from './logsReader.js';
 import { readKeyStats, readTrades } from './strategyReader.js';
 import { ensureLoggedIn, isLoggedIn, navigateToChart, readChartLabel, takeScreenshot } from './chart.js';
-import { DEFAULT_ACTION_TIMEOUT_MS } from './connection.js';
+import { applyPageTimeouts, NAVIGATION_TIMEOUT_MS } from './connection.js';
 import { runSelftest, summarizeChecks } from './selftest.js';
 import { cacheForSource, resolveRuntime, type RuntimeCache } from './runtimeCache.js';
 import type { CompilePayload, DriverApi, SelftestPayload, StatusInfo, StrategyPayload } from './types.js';
@@ -25,8 +25,8 @@ export class TvDriver implements DriverApi {
   private readonly layoutOps: LayoutOps;
 
   constructor(readonly page: Page) {
-    // Bounds every Playwright action without an explicit timeout; navigation keeps its 30 s default.
-    page.setDefaultTimeout(DEFAULT_ACTION_TIMEOUT_MS);
+    // 10 s for every Playwright action without an explicit timeout; navigation explicitly stays at 30 s.
+    applyPageTimeouts(page);
     this.layoutOps = createPageLayoutOps(page);
   }
 
@@ -135,7 +135,7 @@ export class TvDriver implements DriverApi {
   // Observed once: the Strategy Tester spun forever until the page was reloaded.
   private async recoverFromStall(source: string): Promise<void> {
     await withBeforeUnloadAccept(this.page, async () => {
-      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.reload({ waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
       await this.page.locator(SEL.chartCanvas).first().waitFor({ timeout: RELOAD_TIMEOUT_MS });
     });
     // The owned id is kept through the reload: compile() keeps it only if that row is still on the

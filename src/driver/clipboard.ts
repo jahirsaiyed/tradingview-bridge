@@ -27,6 +27,9 @@ async function restoreText(page: ClipboardPage, text: string | null): Promise<vo
  * clipboard text, and ALWAYS restores that text (when it was known) and clears the permissions
  * afterwards. Cleanup errors are swallowed so the original error propagates. The previous text is
  * only held in memory, never logged or returned.
+ * Caveats: clearPermissions() resets ALL permission overrides of the browser context, not only the
+ * clipboard ones (acceptable in the dedicated automation profile). Restoring the previous text may
+ * overwrite text the user copied while the tool call was running.
  */
 export async function withClipboardAccess<T>(page: ClipboardPage, fn: () => Promise<T>): Promise<T> {
   const url = page.url();

@@ -64,7 +64,9 @@ and use `log.info` + `tv_read_pine_logs` instead).
 - It only drives an `https://*.tradingview.com/chart` tab; any other page is refused (`NO_CHART`).
 - Editor reads and writes go through the clipboard: the bridge temporarily uses it and restores the previous
   text content afterwards (images or files on the clipboard are not preserved), then clears the clipboard
-  permissions it granted.
+  permissions it granted. Text you copy while a tool call is running may be overwritten by that restore.
+- Clearing the permissions resets ALL permission overrides of the dedicated browser context, not only the
+  clipboard ones; this is acceptable because the profile is used for TradingView automation only.
 - Review TradingView's terms on automated access before relying on this.
 
 ## Development

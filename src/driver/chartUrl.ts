@@ -1,6 +1,6 @@
 import { TvError } from '../result.js';
 
-const HOST ='tradingview.com';
+const HOST = 'tradingview.com';
 
 /** True only for an https TradingView chart page (exact host or a subdomain, path /chart or /chart/...). */
 export function isTradingViewChartUrl(url: string): boolean {
