@@ -2,6 +2,8 @@ import type { Page } from 'playwright-core';
 import { SEL, TEXT } from '../selectors.js';
 import { TvError } from '../result.js';
 import { parseKeyStats, parseTradeRows, type KeyStats, type Trade } from '../parsers/strategy.js';
+import { deadlineError, type Deadline } from './deadline.js';
+import { STRATEGY_NAME_TIMEOUT_MS, TRADE_ROWS_TIMEOUT_MS } from './reportFlow.js';
 import { pollStable, pollUntil } from './waits.js';
 
 const DEFAULT_REPORT_TIMEOUT_MS = 30_000;
@@ -35,23 +37,32 @@ async function openTab(page: Page, selector: string, name: string): Promise<void
 /**
  * Key stats once the report rendered (within `timeoutMs`) AND two consecutive reads ~700 ms apart
  * agree. A report that keeps changing for 15 s fails with TIMEOUT_REPORT (details.reason 'not-settled').
+ * With a `deadline`, both waits are capped by it; a wait that fails once it is used up fails with
+ * TIMEOUT_REPORT (details.reason 'deadline', phase 'report-render' or 'report-stable').
  */
 export async function readKeyStats(
   page: Page,
   timeoutMs: number = DEFAULT_REPORT_TIMEOUT_MS,
+  deadline?: Deadline,
 ): Promise<KeyStats> {
+  const limit = (ms: number): number => (deadline ? deadline.cap(ms) : ms);
+  const checkBudget = (phase: string): void => {
+    if (deadline?.expired()) throw deadlineError('TIMEOUT_REPORT', phase, deadline);
+  };
   await openTab(page, SEL.reportTab, 'Strategy report');
-  const rendered = await pollUntil(() => readKeyFactsText(page), { timeoutMs, intervalMs: 500 });
+  const rendered = await pollUntil(() => readKeyFactsText(page), { timeoutMs: limit(timeoutMs), intervalMs: 500 });
   if (!rendered) {
+    checkBudget('report-render');
     throw new TvError('TIMEOUT_REPORT', `The Strategy Tester report did not render within ${timeoutMs} ms`, {
       timeoutMs,
     });
   }
   const stable = await pollStable(() => readKeyFactsText(page), {
-    timeoutMs: STABLE_TIMEOUT_MS,
+    timeoutMs: limit(STABLE_TIMEOUT_MS),
     intervalMs: STABLE_READ_INTERVAL_MS,
   });
   if (!stable) {
+    checkBudget('report-stable');
     throw new TvError(
       'TIMEOUT_REPORT',
       `The Strategy Tester key stats kept changing for ${STABLE_TIMEOUT_MS} ms (still recalculating). Retry shortly.`,
@@ -62,11 +73,14 @@ export async function readKeyStats(
 }
 
 /** The name of the strategy whose report the Strategy Tester shows (its footer tab), or null. */
-export async function readReportStrategyName(page: Page): Promise<string | null> {
+export async function readReportStrategyName(
+  page: Page,
+  timeoutMs: number = STRATEGY_NAME_TIMEOUT_MS,
+): Promise<string | null> {
   const text = await page
     .locator(SEL.reportStrategyName)
     .first()
-    .textContent({ timeout: 2000 })
+    .textContent({ timeout: timeoutMs })
     .catch(() => null);
   return text?.trim() || null;
 }
@@ -74,6 +88,7 @@ export async function readReportStrategyName(page: Page): Promise<string | null>
 export async function readTrades(
   page: Page,
   limit: number,
+  rowsTimeoutMs: number = TRADE_ROWS_TIMEOUT_MS,
 ): Promise<{ trades: Trade[]; unparsed: number }> {
   // The key stats rendered but the report container is not found: the container selector broke, which
   // would otherwise read as an empty trade list.
@@ -92,7 +107,7 @@ export async function readTrades(
       const texts = await rowLocator.allInnerTexts();
       return texts.some((text) => /^\s*\d+(Long|Short)/.test(text)) ? texts : null;
     },
-    { timeoutMs: 5000, intervalMs: 500 },
+    { timeoutMs: rowsTimeoutMs, intervalMs: 500 },
   );
   const parsed = parseTradeRows(rows ?? []);
   await page.locator(SEL.reportTab).first().click().catch(() => undefined);

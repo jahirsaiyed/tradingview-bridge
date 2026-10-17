@@ -1,4 +1,5 @@
 import type { CompileProblem } from '../parsers/console.js';
+import { TvError } from '../result.js';
 import { deriveCompiled } from './compileState.js';
 
 /** The outcome of the last real compile, for the source that was compiled. */
@@ -21,6 +22,18 @@ export interface CompiledResult {
   readonly errors: readonly CompileProblem[];
   /** Present (true) when the source was unchanged and nothing shows whether it ever compiled. */
   readonly unknownState?: true;
+}
+
+/**
+ * The owned row after compileAndCollect threw. A deadline TIMEOUT_COMPILE raised after the compile ran names
+ * the row it found (or null, as a finished compile would); any other error leaves ownership as it was.
+ */
+export function ownedAfterCompileError(error: unknown, current: string | null): string | null {
+  if (!(error instanceof TvError) || error.code !== 'TIMEOUT_COMPILE') return current;
+  const details = error.details ?? {};
+  if (details.reason !== 'deadline' || !('ownedEntityId' in details)) return current;
+  const owned = details.ownedEntityId;
+  return typeof owned === 'string' ? owned : null;
 }
 
 /** Keeps the memory only while it still describes the given source. */

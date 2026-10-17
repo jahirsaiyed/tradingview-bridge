@@ -2,8 +2,8 @@ import type { Page } from 'playwright-core';
 import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { scriptTitles } from '../parsers/source.js';
-import { compileAndCollect } from './compile.js';
-import { memoryForSource, resolveCompiled, type CompileMemory } from './compileMemory.js';
+import { COMPILE_DEADLINE_MS, compileAndCollect } from './compile.js';
+import { memoryForSource, ownedAfterCompileError, resolveCompiled, type CompileMemory } from './compileMemory.js';
 import { withBeforeUnloadAccept } from './dialogs.js';
 import { copySource, pasteMismatch, writeAndReadBack, writeAndVerify } from './editor.js';
 import { ensureLayout, type LayoutOps } from './layout.js';
@@ -12,7 +12,8 @@ import { createMutex } from './mutex.js';
 import { createPageLayoutOps } from './pageLayoutOps.js';
 import { readPineLogs } from './logsReader.js';
 import { readKeyStats, readReportStrategyName, readTrades } from './strategyReader.js';
-import { assertOwnedReport } from './reportIdentity.js';
+import { collectReport, readStatsWithRecovery, type ReportSteps } from './reportFlow.js';
+import { createDeadline, type Deadline } from './deadline.js';
 import { waitForRowSettled } from './rowSettle.js';
 import { ensureSessionConnected, isSessionDisconnected } from './sessionGuard.js';
 import { ensureLoggedIn, isLoggedIn, navigateToChart, readChartLabel, takeScreenshot } from './chart.js';
@@ -20,7 +21,6 @@ import { applyPageTimeouts, NAVIGATION_TIMEOUT_MS } from './connection.js';
 import { selftestAfterLayout } from './selftest.js';
 import { cacheForSource, resolveRuntime, type RuntimeCache } from './runtimeCache.js';
 import { isSafeToOverwrite, recordPaste } from './scratch.js';
-import { reportTimeoutError, strategyPayload } from './strategyPayload.js';
 import type {
   CompilePayload,
   DriverApi,
@@ -32,8 +32,11 @@ import type {
 } from './types.js';
 
 const RELOAD_TIMEOUT_MS = 30_000;
-/** Bound for the owned strategy row to stop recalculating before the report is read. */
-const REPORT_SETTLE_TIMEOUT_MS = 15_000;
+/**
+ * Shared budget of one tv_read_strategy_stats call without reload (row settle 15 s + render 30 s + stable 15 s
+ * + name 2 s + trades 5 s would be 67 s); a reload recovery gets a fresh one for its second read.
+ */
+const STATS_DEADLINE_MS = 50_000;
 
 const NOT_SCRATCH_MESSAGE =
   'The Pine Editor holds a script this bridge did not write in this session (it may be one of the ' +
@@ -187,11 +190,18 @@ export class TvDriver implements DriverApi {
   }
 
   private async compileImpl(): Promise<CompilePayload> {
+    const deadline = createDeadline(COMPILE_DEADLINE_MS); // one budget for the whole call, overlay included
     await this.overlay();
     const source = this.lastSource ?? (await copySource(this.page));
     const report = await compileAndCollect(this.page, {
       previousOwned: this.ownedEntityId,
       scriptTitles: scriptTitles(source),
+      deadline,
+    }).catch((error: unknown) => {
+      // Out of budget after the compile ran: keep owning the row it applied; its outcome is unknown.
+      this.ownedEntityId = ownedAfterCompileError(error, this.ownedEntityId);
+      this.compileMemory = null;
+      throw error;
     });
     this.ownedEntityId = report.ownedEntityId;
     const { view, next } = resolveRuntime(this.runtimeCache, source, {
@@ -228,28 +238,32 @@ export class TvDriver implements DriverApi {
   }
 
   private async readStrategyStatsImpl(args: StrategyArgs): Promise<StrategyPayload> {
+    const deadline = createDeadline(STATS_DEADLINE_MS); // one budget for the whole call, overlay included
     await this.overlay();
-    try {
-      return await this.collectStrategy(args);
-    } catch (error) {
-      if (!(error instanceof TvError) || error.code !== 'TIMEOUT_REPORT') throw error;
-      if (error.details?.reason === 'not-settled') throw error; // still recalculating: not a stall
-      if (args.allowReload !== true) throw reportTimeoutError(error, 'reload-not-allowed');
-      if (!this.lastSource) throw reportTimeoutError(error, 'no-script');
-      await this.recoverFromStall(this.lastSource);
-      return this.collectStrategy(args);
-    }
+    const source = this.lastSource;
+    return readStatsWithRecovery(
+      {
+        collect: (budget) => this.collectStrategy(args, budget),
+        recover: source ? () => this.recoverFromStall(source) : null,
+        newDeadline: () => createDeadline(STATS_DEADLINE_MS),
+      },
+      deadline,
+      args.allowReload === true,
+    );
   }
 
-  private async collectStrategy(args: StrategyArgs): Promise<StrategyPayload> {
+  private collectStrategy(args: StrategyArgs, deadline: Deadline): Promise<StrategyPayload> {
+    const page = this.page;
+    const owned = this.ownedEntityId;
     // A recompile recalculates the report: wait (bounded) until the owned row stops loading first.
-    if (this.ownedEntityId) await waitForRowSettled(this.page, this.ownedEntityId, REPORT_SETTLE_TIMEOUT_MS);
-    const keyStats = await readKeyStats(this.page);
+    const steps: ReportSteps = {
+      settleRow: owned ? async (ms) => void (await waitForRowSettled(page, owned, ms)) : null,
+      readKeyStats: (budget) => readKeyStats(page, undefined, budget),
+      readStrategyName: (ms) => readReportStrategyName(page, ms),
+      readTrades: (limit, ms) => readTrades(page, limit, ms),
+    };
     const names = this.lastSource ? scriptTitles(this.lastSource) : [];
-    const identity = assertOwnedReport(await readReportStrategyName(this.page), names);
-    if (!args.includeTrades) return { ...strategyPayload(keyStats), ...identity };
-    const { trades, unparsed } = await readTrades(this.page, args.tradeLimit);
-    return { ...strategyPayload(keyStats, { trades, unparsed, limit: args.tradeLimit }), ...identity };
+    return collectReport(steps, { names, includeTrades: args.includeTrades, tradeLimit: args.tradeLimit }, deadline);
   }
 
   // Observed once: the Strategy Tester spun forever until the page was reloaded.
@@ -271,8 +285,9 @@ export class TvDriver implements DriverApi {
         throw new TvError('INTERNAL', 'Re-compile after the report stall failed', { errors: result.errors });
       }
     } catch (error) {
-      // Ownership could not be re-established after the reload: never keep a possibly stale id.
-      this.ownedEntityId = null;
+      // Ownership could not be re-established after the reload: never keep a possibly stale id, except the
+      // row a re-compile that ran out of budget just applied (named by its deadline error).
+      this.ownedEntityId = ownedAfterCompileError(error, null);
       throw error;
     }
   }

@@ -22,6 +22,8 @@ export default defineConfig({
         'src/driver/scratch.ts',
         'src/driver/compileState.ts',
         'src/driver/compileMemory.ts',
+        'src/driver/deadline.ts',
+        'src/driver/reportFlow.ts',
         'src/driver/strategyPayload.ts',
         'src/driver/provider.ts',
         'src/driver/reportIdentity.ts',

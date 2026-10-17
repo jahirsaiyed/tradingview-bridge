@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { memoryForSource, resolveCompiled, type CompileMemory } from '../../src/driver/compileMemory.js';
+import {
+  memoryForSource,
+  ownedAfterCompileError,
+  resolveCompiled,
+  type CompileMemory,
+} from '../../src/driver/compileMemory.js';
+import { TvError } from '../../src/result.js';
 
 const boom = { line: 3, column: 1, message: 'boom' };
 const fresh = { unchanged: false, errors: [], action: 'added', ownedEntityId: 'e1' } as const;
@@ -55,6 +61,21 @@ describe('resolveCompiled: unchanged source', () => {
     const memory: CompileMemory = { source: 'b', compiled: false, errors: [boom] };
     expect(resolveCompiled(memory, 'a', same).result).toEqual({ compiled: true, errors: [] });
     expect(resolveCompiled(memory, 'a', { ...same, ownedEntityId: null }).result.unknownState).toBe(true);
+  });
+});
+
+describe('ownedAfterCompileError', () => {
+  it('adopts the owned row a deadline timeout names (also null), so the bridge never loses or invents ownership', () => {
+    const named = new TvError('TIMEOUT_COMPILE', 'budget', { reason: 'deadline', phase: 'row-settle', ownedEntityId: 'e2' });
+    expect(ownedAfterCompileError(named, 'e1')).toBe('e2');
+    const none = new TvError('TIMEOUT_COMPILE', 'budget', { reason: 'deadline', phase: 'owned-row', ownedEntityId: null });
+    expect(ownedAfterCompileError(none, 'e1')).toBeNull();
+  });
+
+  it('keeps the current owned row for any other error', () => {
+    expect(ownedAfterCompileError(new TvError('TIMEOUT_COMPILE', 'slow', { phase: 'outcome' }), 'e1')).toBe('e1');
+    expect(ownedAfterCompileError(new TvError('TIMEOUT_REPORT', 'x', { ownedEntityId: 'e9' }), 'e1')).toBe('e1');
+    expect(ownedAfterCompileError(new Error('boom'), null)).toBeNull();
   });
 });
 

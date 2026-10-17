@@ -150,6 +150,9 @@ describe('MCP tools', () => {
     expect(compile).toMatch(/reads the owned row's status again/);
     expect(compile).not.toMatch(/cached result\)/);
     expect(compile).toContain('unknownState');
+    expect(compile).toMatch(/45 s time budget/);
+    expect(stats).toMatch(/50 s time budget/);
+    for (const text of [compile, stats]) expect(text).toContain('"deadline"');
     expect(compile).toMatch(/after a failed compile it stays compiled=false/);
     expect(describe('tv_status')).toContain('sessionDisconnected');
   });

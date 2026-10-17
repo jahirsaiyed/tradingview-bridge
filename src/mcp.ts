@@ -46,7 +46,9 @@ const COMPILE_DESCRIPTION =
   'compiled=false and unknownState=true (state unknown: change the source or ask the owner). cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
   'the bridge removed after a failed compile. ' +
   'warnings are best effort and unverified (their console format has never been observed live): an empty ' +
-  'warnings list does not prove there were none.';
+  'warnings list does not prove there were none. The whole call shares one 45 s time budget: once it is used ' +
+  'up the call fails with TIMEOUT_COMPILE (details.reason "deadline", details.phase = the phase reached; ' +
+  'details.action and details.ownedEntityId when the compile itself already ran) instead of running past about a minute.';
 
 const SET_SCRIPT_DESCRIPTION =
   'REPLACES the Pine Editor contents with the given source (clipboard paste, verified by read-back). ' +
@@ -64,8 +66,11 @@ const STRATEGY_STATS_DESCRIPTION =
   'apart; numbers right after a recompile are still best-effort until they stop changing. The trade list is virtualized: only rendered rows can be read; tradesTotal is the ' +
   'closed-trade count and tradesTruncated=true means fewer trades were returned than min(tradeLimit, tradesTotal). ' +
   'If the report does not render (e.g. zero trades, or a stalled Strategy Tester) the call fails with ' +
-  'TIMEOUT_REPORT. allowReload: true (default false) then reloads the page, which drops unsaved chart state ' +
-  'and can take up to a minute, re-applies the script and retries once. Re-check tuned inputs on a different ' +
+  'TIMEOUT_REPORT. The call shares one 50 s time budget: once it is used up it fails with TIMEOUT_REPORT ' +
+  '(details.reason "deadline", details.phase = the phase reached, never a reload) instead of running past about a minute. ' +
+  'allowReload: true (default false) reloads the page on a stalled report, which drops unsaved chart state, ' +
+  're-applies the script and retries once; the retry gets a fresh 50 s budget, so such a call can take several ' +
+  'minutes and may outlast a 60 s client timeout. Re-check tuned inputs on a different ' +
   'symbol or date range before trusting them.';
 
 const SELFTEST_DESCRIPTION =

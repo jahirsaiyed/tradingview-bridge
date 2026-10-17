@@ -76,6 +76,13 @@ pristine: use `overwriteExisting: true` after confirming with the owner.
   2.5 s rule.
 - `cleanedErrorRows`: number of junk "Compilation error" legend rows the bridge removed after a failed compile.
 
+Time budget: the whole `tv_compile` call (editor layout, compile, finding and settling the owned row, including
+re-picks) shares one 45 s budget; each wait uses at most the time left. Once the budget is used up the call fails
+with `TIMEOUT_COMPILE` (`details.reason: "deadline"`, `details.phase`: `outcome`, `error-rows`, `owned-row`,
+`row-settle` or `unchanged-settle`) instead of running past about a minute, the usual MCP client timeout. When
+the compile itself already ran, `details.action` and `details.ownedEntityId` say so and the bridge keeps owning
+that row (so `tv_remove_script` still works); call `tv_compile` again to read the result.
+
 ### `tv_read_pine_logs`
 
 Returns `lines` (`time`, `text`) and `layoutRestored`. It briefly switches the editor to split view to open
@@ -107,7 +114,15 @@ best-effort until the numbers stop changing; key stats that keep changing for 15
 
 If the report does not render (a zero-trade strategy, or a stalled Strategy
 Tester) the call fails with `TIMEOUT_REPORT`. With `allowReload: true` (default `false`) it instead reloads
-the page, which drops unsaved chart state and can take up to a minute, re-applies the script and retries once.
+the page, which drops unsaved chart state, re-applies the script and retries once.
+
+Time budget: one call shares a 50 s budget (without it the waits could add up to about 67 s: row settle 15 s,
+render 30 s, stable reads 15 s, strategy name 2 s, trades 5 s); each wait uses at most the time left. Once it is
+used up the call fails with `TIMEOUT_REPORT` (`details.reason: "deadline"`, `details.phase`: `row-settle`,
+`report-render`, `report-stable`, `strategy-name` or `trades`) instead of running past about a minute; such a
+timeout never triggers a reload, even with `allowReload: true`. With `allowReload: true`, the reload recovery
+(reload, re-paste, re-compile with its own 45 s budget) is followed by a second read with a fresh 50 s budget,
+so such a call can take several minutes in the worst case and may outlast a 60 s client timeout.
 
 ### `tv_selftest`
 

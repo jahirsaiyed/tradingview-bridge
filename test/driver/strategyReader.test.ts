@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Page } from 'playwright-core';
-import { readTrades } from '../../src/driver/strategyReader.js';
+import { readKeyStats, readTrades } from '../../src/driver/strategyReader.js';
+import { createDeadline } from '../../src/driver/deadline.js';
 import { SEL } from '../../src/selectors.js';
 import { TvError } from '../../src/result.js';
 
@@ -13,6 +14,36 @@ function countsPage(counts: Record<string, number>): Page {
     }),
   } as unknown as Page;
 }
+
+// The report tab is visible and clickable; evaluate() stands in for the Key stats text read.
+function reportPage(read: () => string | null): Page {
+  return {
+    locator: () => ({ first: () => ({ isVisible: async () => true, click: async () => undefined }) }),
+    evaluate: async () => read(),
+  } as unknown as Page;
+}
+
+describe('readKeyStats with a deadline', () => {
+  it('fails with a deadline TIMEOUT_REPORT in the render phase once the budget is used up', async () => {
+    let t = 0;
+    const deadline = createDeadline(1_000, () => t);
+    t = 5_000; // the budget was used up before the report tab was opened
+    const error = await readKeyStats(reportPage(() => null), 30_000, deadline).then(() => null, (e: unknown) => e);
+    expect((error as TvError).code).toBe('TIMEOUT_REPORT');
+    expect((error as TvError).details).toMatchObject({ reason: 'deadline', phase: 'report-render' });
+  });
+
+  it('fails in the stable phase when the render used the rest of the budget', async () => {
+    let t = 0;
+    const deadline = createDeadline(1_000, () => t);
+    const read = () => {
+      t = 2_000; // the render read happens just before the budget ends
+      return 'Total PnL 1 USD';
+    };
+    const error = await readKeyStats(reportPage(read), 30_000, deadline).then(() => null, (e: unknown) => e);
+    expect((error as TvError).details).toMatchObject({ reason: 'deadline', phase: 'report-stable' });
+  });
+});
 
 describe('readTrades container check', () => {
   it('throws SELECTOR_MISSING when the key stats are shown but the trades container is not found', async () => {
