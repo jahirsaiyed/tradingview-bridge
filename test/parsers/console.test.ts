@@ -27,6 +27,17 @@ describe('parseConsoleEntries', () => {
     ]);
     expect(entries[0]!.time).toBe('12:57:39 PM');
   });
+
+  it('accepts a 24-hour clock without AM/PM', () => {
+    expect(parseConsoleEntries('13:02:05\tCompiled.\n9:00:01 Added to chart.')).toEqual([
+      { time: '13:02:05', message: 'Compiled.' },
+      { time: '9:00:01', message: 'Added to chart.' },
+    ]);
+  });
+
+  it('still accepts a 12-hour clock line', () => {
+    expect(parseConsoleEntries('1:02:05 PM\tCompiled.')).toEqual([{ time: '1:02:05 PM', message: 'Compiled.' }]);
+  });
 });
 
 describe('parseProblemCodes', () => {

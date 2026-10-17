@@ -22,7 +22,7 @@ export interface CompileOutcome {
   readonly warnings: readonly CompileProblem[];
 }
 
-const CONSOLE_LINE = /^(\d{1,2}:\d{2}:\d{2} [AP]M) (.+)$/;
+const CONSOLE_LINE = /^(\d{1,2}:\d{2}:\d{2}(?: [AP]M)?) (.+)$/; // 12- or 24-hour clock
 const PROBLEM_CODE_LINE = /^(.*)\(([A-Z]{2}\d{4,6})\)$/;
 const ERROR_ENTRY = /^Error at (\d+):(\d+) (.*)$/;
 const WARNING_ENTRY = /^Warning at (\d+):(\d+) (.*)$/; // format assumed; not yet observed live
