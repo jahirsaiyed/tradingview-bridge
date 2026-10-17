@@ -8,7 +8,7 @@ import { ensureLayout } from '../src/driver/layout.js';
 import { SOURCES } from './fixtures/pine.js';
 import { writeAndVerify } from '../src/driver/editor.js';
 import { compileAndCollect } from '../src/driver/compile.js';
-import { scriptTitles } from '../src/parsers/source.js';
+import { scriptTitles, sourcesEqual } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
 import { readKeyStats, readTrades } from '../src/driver/strategyReader.js';
 import { readPineLogs } from '../src/driver/logsReader.js';
@@ -17,6 +17,35 @@ import { TvError } from '../src/result.js';
 import { readChartLabel, isLoggedIn, takeScreenshot } from '../src/driver/chart.js';
 
 type Section = (page: Page) => Promise<void>;
+
+const UNKNOWN_SOURCE = `//@version=6
+indicator("TV Bridge Unknown Text")
+plot(open)
+`;
+
+// tv_set_script must refuse text the bridge did not write, and accept it with overwriteExisting.
+async function scratchGuardCheck(page: Page, driver: TvDriver): Promise<void> {
+  await writeAndVerify(page, UNKNOWN_SOURCE); // low level: the driver does not know this text
+  const refused = await driver.setScript(SOURCES.valid).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  check(refused instanceof TvError && refused.code === 'EDITOR_NOT_SCRATCH', 'unknown editor text is refused');
+  check(sourcesEqual((await driver.getScript()).source, UNKNOWN_SOURCE), 'refused setScript left the editor untouched');
+  await driver.setScript(SOURCES.valid, { overwriteExisting: true });
+  check(sourcesEqual((await driver.getScript()).source, SOURCES.valid), 'overwriteExisting replaces the unknown text');
+}
+
+// Parallel calls are serialized: no interleaved Ctrl+A/Ctrl+V or clipboard sentinel in the editor.
+async function concurrencyCheck(driver: TvDriver): Promise<void> {
+  const [first, status, second] = await Promise.all([driver.getScript(), driver.status(), driver.getScript()]);
+  check(
+    sourcesEqual(first.source, SOURCES.valid) && sourcesEqual(second.source, SOURCES.valid) && status.chartOpen,
+    `parallel getScript/status/getScript are consistent (${status.layout})`,
+  );
+  const after = (await driver.getScript()).source;
+  check(sourcesEqual(after, SOURCES.valid) && !after.includes('__tv_bridge_sentinel__'), 'editor text unchanged by parallel calls');
+}
 
 export const state: { owned: string | null } = { owned: null };
 
@@ -171,13 +200,15 @@ const sections: Record<string, Section> = {
       check(status.chartOpen && status.loggedIn, `status ok (${status.symbol}, ${status.interval}, ${status.layout})`);
 
       // A failed first compile makes TradingView add a junk row; that only happens while the script is not on the chart yet.
-      await driver.setScript(SOURCES.broken);
+      // A fresh driver does not know the smoke text left in the editor by earlier runs: override the scratch guard once.
+      await driver.setScript(SOURCES.broken, { overwriteExisting: true });
       const broken = await driver.compile();
       check(!broken.compiled && broken.errors.length >= 1, `broken source fails (${broken.errors.length} errors)`);
       check(broken.cleanedErrorRows >= 1, `failed compile junk rows cleaned (${broken.cleanedErrorRows})`);
 
-      await driver.setScript(SOURCES.valid);
+      await scratchGuardCheck(page, driver);
       check((await driver.getScript()).source.includes('TV Bridge Smoke'), 'set/get script round trip');
+      await concurrencyCheck(driver);
       const compiled = await driver.compile();
       check(compiled.compiled && !compiled.runtimeError.present, `compile ok (${compiled.action ?? 'unchanged'})`);
       const again = await driver.compile();
@@ -192,6 +223,10 @@ const sections: Record<string, Section> = {
       check((await driver.compile()).compiled, 'strategy compiled');
       const stats = await driver.readStrategyStats({ includeTrades: true, tradeLimit: 3 });
       check(stats.keyStats.totalPnl !== null && (stats.trades?.length ?? 0) > 0, 'strategy stats and trades read');
+      check(
+        typeof stats.tradesTruncated === 'boolean',
+        `trade truncation reported (total ${stats.tradesTotal}, truncated ${stats.tradesTruncated})`,
+      );
       const logs = await driver.readPineLogs();
       check(logs.lines.some((line) => line.text.includes('last bar close=')) && logs.layoutRestored, 'pine logs read');
 

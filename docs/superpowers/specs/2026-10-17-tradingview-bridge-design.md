@@ -10,7 +10,9 @@ Let Claude (via Claude Code) write a Pine Script into TradingView's Pine Editor,
 
 **In scope (autonomous actions):** edit the Pine Editor, save, add/update/remove *the script Claude added*, change that script's inputs, change symbol/timeframe, take screenshots, read stats/logs.
 
-**Out of scope, by construction (no code path exists):** alerts, orders/trading/broker panels, watchlists, drawings, publishing scripts, touching indicators Claude did not add.
+**Out of scope, by construction (no code path exists):** alerts, orders/trading/broker panels, watchlists, drawings, publishing scripts, removing indicators Claude did not add.
+
+**Guarded, not impossible:** removal is ownership-guarded (only the legend row the bridge itself added in this session, by entity id). `tv_set_script` replaces the editor contents only when they are scratch (empty, text the bridge pasted in this session, or the pristine new-script template); any other script is refused with `EDITOR_NOT_SCRATCH` unless the caller passes `overwriteExisting: true`, which Claude must only do after the owner confirms.
 
 **Non-goals:** a general TradingView automation library; running unattended; multi-user use; the Chrome-extension driver (kept possible, not designed now).
 
@@ -37,13 +39,13 @@ All return `{ok: true, ...}` or `{ok: false, error: {code, message, details}}`. 
 |---|---|
 | `tv_status` | Connected? logged in? chart open? Returns symbol, timeframe, layout mode (`overlay`/`split`), editor open. |
 | `tv_open_chart` | Set symbol and/or timeframe. |
-| `tv_set_script` | Paste source into the editor (clipboard). Verifies by reading back. |
+| `tv_set_script` | Paste source into the editor (clipboard). Verifies by reading back. Refuses with `EDITOR_NOT_SCRATCH` when the editor holds a script the bridge did not write (scratch check: empty, text pasted by the bridge this session, or the new-script template) unless `overwriteExisting: true` (only after the owner confirms). |
 | `tv_get_script` | Read the editor source (select-all + copy; normalises `\r\n`). |
 | `tv_compile` | Trigger compile/add (`Ctrl+Enter`). Returns `{compiled, action: "added"|"updated", errors[{line,column,message,code?}], warnings[], runtimeError: {present, code?, raw?}}` (`compiled` is false when there are errors; the tool-level `ok` means the call itself worked). |
 | `tv_set_inputs` | **Deferred** (see section 10). Set input values of the script Claude added, from a name-to-value map. |
 | `tv_screenshot` | Chart screenshot. Ensures overlay layout first so the chart is wide. |
 | `tv_read_pine_logs` | Per-bar `log.*` output as `[{time, text}]` (level markup not yet observed). Switches to split layout, reads, returns to overlay. |
-| `tv_read_strategy_stats` | Key stats parsed into numbers with units (Total PnL, Max drawdown, Profitable trades, Profit factor), plus optionally the trade list (default last 50 rows). |
+| `tv_read_strategy_stats` | Key stats parsed into numbers with units (Total PnL, Max drawdown, Profitable trades, Profit factor), plus optionally the trade list (default last 50 rows; only rendered rows of the virtualized table can be read: `tradesTotal` and `tradesTruncated` report it). `allowReload` (default false): on `TIMEOUT_REPORT`, reload the page (drops unsaved chart state), re-apply the script and retry once; without it the timeout is returned as is. |
 | `tv_read_data_window` | **Deferred** (see section 10). Indicator values at the latest bar only (per-bar reads go through Pine logs). |
 | `tv_remove_script` | Remove only the script Claude added in this session. |
 | `tv_selftest` | Check every selector in the current layout resolves and key labels still match; report failures by name. |
@@ -62,14 +64,14 @@ All return `{ok: true, ...}` or `{ok: false, error: {code, message, details}}`. 
 - **Runtime errors are not in the console.** After a compile settles (about 2 s), read `[data-qa-id="legend-source-item-status"]` inside the script's legend row; its `title` is e.g. `Runtime error: RE10045 · Opened in Pine Editor` (the error code plus a UI hint; the underlying message text is not in the title; no hover needed). Pine logs show "No data" in that case.
 - **Layouts:** overlay container `[data-name="pine-dialog"]`; split container `#pine-editor-dialog`. Every tool first calls `ensureLayout(required)`. The toggle is the button titled "Move split-view to overlay" or "Move overlay to split-view". Pine logs requires split (TradingView shows a "Split the view?" dialog, accepted only when we initiated it). Screenshots require overlay.
 - **Stable hooks:** Strategy Tester `role="tab"` ids (`Strategy report`, `List of Trades`, ...). Most toolbar buttons are unlabeled; prefer keyboard shortcuts and scoped locators.
-- **Readiness and recovery:** every wait has an explicit condition and timeout. If the Strategy Tester shows a spinner past the timeout (observed once; fixed by page reload), reload once, re-establish layout, retry once, then return `TIMEOUT_REPORT`.
+- **Readiness and recovery:** every wait has an explicit condition and timeout. If the Strategy Tester shows a spinner past the timeout (observed once; fixed by page reload), return `TIMEOUT_REPORT` (the report may also be empty for a zero-trade strategy). Only when the caller passed `allowReload: true`: reload once, re-establish layout, re-apply the script (scratch check applies), retry once, then return `TIMEOUT_REPORT`.
 - **Parsing:** Unicode minus (U+2212), thousands separators, `USD` suffixes, `%` values, and U+00A0 in rendered editor text are all handled in parsers.
 - **Removal safety:** `tv_remove_script` locates the `legend-source-item` row whose `legend-source-title` equals the script Claude added, expands that pane's legend if collapsed (a collapsed legend is covered by a canvas and blocks pointer events), clicks the row's `legend-delete-action` with a real Playwright click (a synthetic DOM `.click()` does not remove), then polls until the row is gone. Indicators without `overlay=true` live in their own lower pane with their own legend. Never use positional clicks on the chart.
 - **Never right-click the chart or click blind coordinates.** The chart context menu contains alert and order entries.
 
 ## 7. Errors
 
-Typed codes: `NOT_CONNECTED`, `NOT_LOGGED_IN`, `NO_CHART`, `UNEXPECTED_DIALOG` (includes dialog title; e.g. Help Center, upgrade prompts), `LAYOUT_FAILED`, `TIMEOUT_COMPILE`, `TIMEOUT_REPORT`, `SELECTOR_MISSING` (names the selector), `PASTE_MISMATCH`, `NOT_OWNED` (target script was not added by Claude), `INVALID_ARGUMENT`, `REMOVE_FAILED`, `INTERNAL` (unexpected exception). A dialog we did not trigger is never auto-accepted.
+Typed codes: `NOT_CONNECTED`, `NOT_LOGGED_IN`, `NO_CHART`, `UNEXPECTED_DIALOG` (includes dialog title; e.g. Help Center, upgrade prompts), `LAYOUT_FAILED`, `TIMEOUT_COMPILE`, `TIMEOUT_REPORT`, `SELECTOR_MISSING` (names the selector), `PASTE_MISMATCH`, `EDITOR_NOT_SCRATCH` (the editor holds a script the bridge did not write; retry with `overwriteExisting: true` only after the owner confirms), `NOT_OWNED` (target script was not added by Claude), `INVALID_ARGUMENT`, `REMOVE_FAILED`, `INTERNAL` (unexpected exception). A dialog we did not trigger is never auto-accepted.
 
 ## 8. Security
 
@@ -99,5 +101,5 @@ src/parsers/            pure parsing functions
 scripts/launch-chrome.ps1
 test/parsers/           fixtures + unit tests
 test/live-smoke.mjs     manual end-to-end script
-spike/                  throwaway probes + FINDINGS.md (reference only)
+spike/FINDINGS.md       spike findings (the throwaway probe scripts were removed; see git history)
 ```

@@ -1,3 +1,5 @@
+> The throwaway probe scripts were removed after these findings were recorded; see the git history before this commit for them.
+
 # Spike findings (2026-10-17)
 
 Method: Playwright `connectOverCDP` to a dedicated Chrome profile on 127.0.0.1:9222, logged in to TradingView.
