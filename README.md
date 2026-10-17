@@ -98,6 +98,12 @@ virtualized, so only rendered rows can be read: `tradesTotal` is the closed-trad
 (`null` when unknown) and `tradesTruncated: true` means fewer trades were returned than
 `min(tradeLimit, tradesTotal)`.
 
+Numbers are parsed only in unambiguous formats: an optional sign, digits with no separators or with proper
+comma groups (`1,234,567.89`), an optional `.digits` part and an optional K/M/B magnitude. A value in any other
+format (a decimal comma such as `12,5`, `1.234,56`, `1 234,56`, `1,2,3`) is returned as `null` for that key
+stat, and a trade row with such a price, size or PnL counts in `unparsedTradeRows`: never a plausible but wrong
+number. Plain numbers keep full precision.
+
 The result also names the report: `strategyName` is the strategy the Strategy Tester shows (its footer tab;
 TradingView shows the short title when one is declared) and `matchesOwnedScript` is `true`/`false` when both
 that name and the script the bridge set are known (`null` otherwise). The names are compared for equality

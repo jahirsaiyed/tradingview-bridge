@@ -65,6 +65,8 @@ const STRATEGY_STATS_DESCRIPTION =
   '(up to 15 s) until its strategy row stops recalculating, then requires two identical key-stats reads 0.7 s ' +
   'apart; numbers right after a recompile are still best-effort until they stop changing. The trade list is virtualized: only rendered rows can be read; tradesTotal is the ' +
   'closed-trade count and tradesTruncated=true means fewer trades were returned than min(tradeLimit, tradesTotal). ' +
+  'A number in an ambiguous format (decimal comma such as 12,5 or 1.234,56) is returned as null (a trade row ' +
+  'with one counts in unparsedTradeRows), never misread. ' +
   'If the report does not render (e.g. zero trades, or a stalled Strategy Tester) the call fails with ' +
   'TIMEOUT_REPORT. The call shares one 50 s time budget: once it is used up it fails with TIMEOUT_REPORT ' +
   '(details.reason "deadline", details.phase = the phase reached, never a reload) instead of running past about a minute. ' +

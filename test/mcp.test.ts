@@ -153,6 +153,7 @@ describe('MCP tools', () => {
     expect(compile).toMatch(/45 s time budget/);
     expect(stats).toMatch(/50 s time budget/);
     for (const text of [compile, stats]) expect(text).toContain('"deadline"');
+    expect(stats).toMatch(/ambiguous format .* returned as null/);
     expect(compile).toMatch(/after a failed compile it stays compiled=false/);
     expect(describe('tv_status')).toContain('sessionDisconnected');
   });
