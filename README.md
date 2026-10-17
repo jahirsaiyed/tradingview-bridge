@@ -5,7 +5,7 @@ MCP server that lets Claude write a Pine Script into TradingView, compile it, an
 
 ## Setup
 
-1. `npm install`
+1. `npm ci` (installs the exact versions pinned in `package-lock.json`)
 2. Start the dedicated Chrome (once per session) and log in to TradingView in it:
    `powershell -File scripts\launch-chrome.ps1`
    The bridge attaches to this Chrome over CDP, so it needs this dedicated, logged-in profile: a regular
@@ -13,7 +13,8 @@ MCP server that lets Claude write a Pine Script into TradingView, compile it, an
    debugging port gives full control of the profile.
 3. Open a **scratch** script in the Pine Editor. `tv_set_script` replaces the editor contents.
 4. Register the server with Claude Code:
-   `claude mcp add tradingview -- npx tsx D:/TradeBots/BrowserAI/src/server.ts`
+   `claude mcp add tradingview -- node D:/TradeBots/BrowserAI/node_modules/tsx/dist/cli.mjs D:/TradeBots/BrowserAI/src/server.ts`
+   This runs the project's own pinned `tsx` copy; avoid `npx tsx`, which can download an unpinned package.
 
 The server connects to Chrome lazily, on the first tool call, so it starts even when Chrome is not running.
 

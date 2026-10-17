@@ -36,7 +36,7 @@ const COMPILE_DESCRIPTION =
   'not that the script is clean. cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
   'the bridge removed after a failed compile.';
 
-export function registerTools(server: McpServer, getDriver: GetDriver): void {
+function registerSessionTools(server: McpServer, getDriver: GetDriver): void {
   server.tool(
     'tv_status',
     'Check the browser connection, login, open chart (symbol, interval) and editor layout (overlay/split/closed).',
@@ -58,6 +58,15 @@ export function registerTools(server: McpServer, getDriver: GetDriver): void {
   );
 
   server.tool(
+    'tv_selftest',
+    'Check that the selectors this bridge depends on still resolve in the current TradingView UI.',
+    {},
+    () => runTool(getDriver, (d) => d.selftest()),
+  );
+}
+
+function registerScriptTools(server: McpServer, getDriver: GetDriver): void {
+  server.tool(
     'tv_set_script',
     'REPLACES the Pine Editor contents with the given source (clipboard paste, verified by read-back). Open a scratch script first.',
     { source: z.string().min(1).max(200_000) },
@@ -70,6 +79,15 @@ export function registerTools(server: McpServer, getDriver: GetDriver): void {
 
   server.tool('tv_compile', COMPILE_DESCRIPTION, {}, () => runTool(getDriver, (d) => d.compile()));
 
+  server.tool(
+    'tv_remove_script',
+    'Remove the script this bridge added in this session. Never removes other indicators.',
+    {},
+    () => runTool(getDriver, (d) => d.removeScript()),
+  );
+}
+
+function registerReadTools(server: McpServer, getDriver: GetDriver): void {
   server.tool('tv_screenshot', 'Screenshot of the TradingView viewport as PNG.', {}, async (): Promise<CallToolResult> => {
     try {
       const { png } = await (await getDriver()).screenshot();
@@ -95,18 +113,10 @@ export function registerTools(server: McpServer, getDriver: GetDriver): void {
     },
     (args) => runTool(getDriver, (d) => d.readStrategyStats(args)),
   );
+}
 
-  server.tool(
-    'tv_remove_script',
-    'Remove the script this bridge added in this session. Never removes other indicators.',
-    {},
-    () => runTool(getDriver, (d) => d.removeScript()),
-  );
-
-  server.tool(
-    'tv_selftest',
-    'Check that the selectors this bridge depends on still resolve in the current TradingView UI.',
-    {},
-    () => runTool(getDriver, (d) => d.selftest()),
-  );
+export function registerTools(server: McpServer, getDriver: GetDriver): void {
+  registerSessionTools(server, getDriver);
+  registerScriptTools(server, getDriver);
+  registerReadTools(server, getDriver);
 }

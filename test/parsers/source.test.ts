@@ -24,7 +24,7 @@ describe('sourcesEqual', () => {
     expect(sourcesEqual('a\nb\n', 'a\r\nb\r\n')).toBe(true);
   });
   it('treats non-breaking spaces as spaces', () => {
-    expect(sourcesEqual('a b', 'a b')).toBe(true);
+    expect(sourcesEqual('a b', 'a\u00a0b')).toBe(true);
   });
   it('detects real differences', () => {
     expect(sourcesEqual('a\n    b', 'a\n  b')).toBe(false);

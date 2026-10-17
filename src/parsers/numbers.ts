@@ -1,4 +1,6 @@
-const MINUS_VARIANTS = /[−‒–]/g;
+// Minus sign, figure dash, en dash (escaped: source files stay pure ASCII).
+const MINUS_VARIANTS = /[\u2212\u2012\u2013]/g;
+const NBSP = /\u00a0/g;
 const SUFFIX: Readonly<Record<string, number>> = { K: 1e3, M: 1e6, B: 1e9 };
 
 export interface Money {
@@ -7,7 +9,7 @@ export interface Money {
 }
 
 export function normalizeText(input: string): string {
-  return input.replace(/ /g, ' ').replace(MINUS_VARIANTS, '-').replace(/\s+/g, ' ').trim();
+  return input.replace(NBSP, ' ').replace(MINUS_VARIANTS, '-').replace(/\s+/g, ' ').trim();
 }
 
 export function parseNumber(raw: string): number | null {

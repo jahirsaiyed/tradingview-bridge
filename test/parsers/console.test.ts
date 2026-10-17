@@ -12,7 +12,7 @@ const PANEL = [
   '1:02:05 PM\tUpdated on chart.',
   '1:01:44 PM\tError at 7:16 Syntax error at input ")"',
   'Line 7, Col 16',
-  'Pine Script® v6',
+  'Pine Script\u00ae v6',
 ].join('\n');
 
 describe('parseConsoleEntries', () => {

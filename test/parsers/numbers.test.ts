@@ -3,13 +3,13 @@ import { normalizeText, parseNumber, parseMoney, parsePercent } from '../../src/
 
 describe('normalizeText', () => {
   it('converts nbsp and unicode minus and collapses whitespace', () => {
-    expect(normalizeText('  −47.67  USD\n\t x ')).toBe('-47.67 USD x');
+    expect(normalizeText('  \u221247.67\u00a0 USD\n\t x ')).toBe('-47.67 USD x');
   });
 });
 
 describe('parseNumber', () => {
   it('parses unicode minus with thousands separators', () => {
-    expect(parseNumber('−1,234.56')).toBe(-1234.56);
+    expect(parseNumber('\u22121,234.56')).toBe(-1234.56);
   });
   it('parses an explicit plus sign', () => {
     expect(parseNumber('+7.95')).toBe(7.95);
@@ -22,13 +22,13 @@ describe('parseNumber', () => {
   it('returns null for non-numbers', () => {
     expect(parseNumber('abc')).toBeNull();
     expect(parseNumber('')).toBeNull();
-    expect(parseNumber('—')).toBeNull();
+    expect(parseNumber('\u2014')).toBeNull();
   });
 });
 
 describe('parseMoney', () => {
   it('parses signed amounts with a currency unit', () => {
-    expect(parseMoney('−47.67 USD')).toEqual({ value: -47.67, unit: 'USD' });
+    expect(parseMoney('\u221247.67 USD')).toEqual({ value: -47.67, unit: 'USD' });
   });
   it('parses a magnitude suffix glued to the unit', () => {
     expect(parseMoney('10.43 KUSD')).toEqual({ value: 10430, unit: 'USD' });
@@ -41,9 +41,9 @@ describe('parseMoney', () => {
 describe('parsePercent', () => {
   it('parses plain and spaced percents', () => {
     expect(parsePercent('34.01%')).toBe(34.01);
-    expect(parsePercent('−0.46 %')).toBe(-0.46);
+    expect(parsePercent('\u22120.46 %')).toBe(-0.46);
   });
   it('returns null for a dash', () => {
-    expect(parsePercent('—')).toBeNull();
+    expect(parsePercent('\u2014')).toBeNull();
   });
 });

@@ -3,10 +3,10 @@ import { parseRuntimeStatus } from '../../src/parsers/runtime.js';
 
 describe('parseRuntimeStatus', () => {
   it('extracts the runtime error code from the legend title', () => {
-    expect(parseRuntimeStatus('Runtime error: RE10045 · Opened in Pine Editor')).toEqual({
+    expect(parseRuntimeStatus('Runtime error: RE10045 \u00b7 Opened in Pine Editor')).toEqual({
       present: true,
       code: 'RE10045',
-      raw: 'Runtime error: RE10045 · Opened in Pine Editor',
+      raw: 'Runtime error: RE10045 \u00b7 Opened in Pine Editor',
     });
   });
   it('reports no error for a missing title', () => {
