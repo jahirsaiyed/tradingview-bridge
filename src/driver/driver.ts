@@ -3,6 +3,7 @@ import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { extractScriptTitle } from '../parsers/source.js';
 import { compileAndCollect } from './compile.js';
+import { withBeforeUnloadAccept } from './dialogs.js';
 import { copySource, writeAndVerify } from './editor.js';
 import { ensureLayout, type LayoutOps } from './layout.js';
 import { removeLegendRow } from './legend.js';
@@ -119,9 +120,10 @@ export class TvDriver implements DriverApi {
 
   // Observed once: the Strategy Tester spun forever until the page was reloaded.
   private async recoverFromStall(source: string): Promise<void> {
-    this.page.once('dialog', (dialog) => void dialog.accept());
-    await this.page.reload({ waitUntil: 'domcontentloaded' });
-    await this.page.locator(SEL.chartCanvas).first().waitFor({ timeout: RELOAD_TIMEOUT_MS });
+    await withBeforeUnloadAccept(this.page, async () => {
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.locator(SEL.chartCanvas).first().waitFor({ timeout: RELOAD_TIMEOUT_MS });
+    });
     this.ownedEntityId = null;
     this.runtimeCache = null;
     await this.overlay();

@@ -1,6 +1,7 @@
 import type { Page } from 'playwright-core';
 import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
+import { withBeforeUnloadAccept } from './dialogs.js';
 import { parseChartLabel, type ChartLabel } from '../parsers/chart.js';
 
 export async function readChartLabel(page: Page): Promise<ChartLabel | null> {
@@ -31,8 +32,9 @@ export async function navigateToChart(
   const url = new URL(page.url());
   if (args.symbol) url.searchParams.set('symbol', args.symbol);
   if (args.interval) url.searchParams.set('interval', args.interval);
-  page.once('dialog', (dialog) => void dialog.accept());
-  await page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
-  await page.locator(SEL.chartCanvas).first().waitFor({ timeout: 30_000 });
+  await withBeforeUnloadAccept(page, async () => {
+    await page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
+    await page.locator(SEL.chartCanvas).first().waitFor({ timeout: 30_000 });
+  });
   return page.url();
 }
