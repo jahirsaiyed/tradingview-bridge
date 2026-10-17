@@ -170,3 +170,24 @@ describe('pickOwnedEntity (several script names)', () => {
     expect(owned).toBeNull();
   });
 });
+
+describe('pickOwnedEntity (word-boundary match)', () => {
+  const pick = (title: string, names: string[]) =>
+    pickOwnedEntity({ before: [], after: [row('n', title)], scriptTitles: names, previousOwned: null, action: 'added' });
+
+  it('does not let a short title claim a fresh row whose title merely starts with it', () => {
+    expect(pick('MACD 12 26 close 9', ['My Strategy', 'M'])).toBeNull();
+    expect(pick('Spike strategy', ['Spike strat'])).toBeNull();
+  });
+
+  it('matches the exact title or the title followed by a space (inputs appended)', () => {
+    expect(pick('Spike strat', ['Spike strat'])).toBe('n');
+    expect(pick('Spike strat 10 30', ['Spike strat'])).toBe('n');
+    expect(pick('M 14 1.5', ['My Strategy', 'M'])).toBe('n');
+  });
+
+  it('does not keep a previous owned row that only shares a prefix', () => {
+    const rows = [row('b', 'MACD')];
+    expect(pickOwnedEntity({ before: rows, after: rows, scriptTitles: ['M'], previousOwned: 'b', action: null })).toBeNull();
+  });
+});

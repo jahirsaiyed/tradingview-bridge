@@ -14,16 +14,21 @@ export interface OwnershipArgs {
   readonly action: 'added' | 'updated' | null;
 }
 
+function titleMatches(title: string, name: string): boolean {
+  return title === name || title.startsWith(`${name} `);
+}
+
 /**
  * Ownership is claimed only for (i) the previously owned row while it still matches a script name, or
  * (ii) exactly one FRESH row (absent from `before`) matching a script name. Anything else is null, so
- * a pre-existing user row is never claimed by its title. A row matches when its legend title starts
- * with ANY of the names (TradingView shows the short title when one is declared).
+ * a pre-existing user row is never claimed by its title. A row matches when its legend title equals
+ * ANY of the names or starts with it followed by a space (TradingView appends inputs, e.g. "Name 14 1.5",
+ * and shows the short title when one is declared). A bare prefix ("M" vs "MACD") never matches.
  */
 export function pickOwnedEntity(args: OwnershipArgs): string | null {
   const names = args.scriptTitles.filter((name) => name.length > 0);
   if (names.length === 0) return null;
-  const matches = args.after.filter((row) => names.some((name) => row.title.startsWith(name)));
+  const matches = args.after.filter((row) => names.some((name) => titleMatches(row.title, name)));
   if (args.previousOwned && matches.some((row) => row.entityId === args.previousOwned)) {
     return args.previousOwned;
   }
