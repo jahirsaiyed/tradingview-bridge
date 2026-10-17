@@ -88,37 +88,34 @@ async function cleanupNewErrorRows(page: Page, rowsBefore: readonly LegendRow[])
   return cleaned;
 }
 
+type ReportParts = Pick<CompileReport, 'action' | 'ownedEntityId'> &
+  Partial<Omit<CompileReport, 'action' | 'ownedEntityId' | 'elapsedMs'>>;
+
+function buildReport(parts: ReportParts, startedAt: number): CompileReport {
+  return {
+    errors: [],
+    warnings: [],
+    runtimeError: { present: false },
+    runtimeChecked: false,
+    cleanedErrorRows: 0,
+    unchanged: false,
+    ...parts,
+    elapsedMs: Date.now() - startedAt,
+  };
+}
+
 export async function compileAndCollect(page: Page, args: CompileArgs): Promise<CompileReport> {
   const startedAt = Date.now();
   const baseline = (await readConsole(page)).entries.length;
   const rowsBefore = await listLegendRows(page);
   if (!(await triggerCompile(page))) {
-    return {
-      action: null,
-      errors: [],
-      warnings: [],
-      runtimeError: { present: false },
-      runtimeChecked: false,
-      ownedEntityId: args.previousOwned,
-      cleanedErrorRows: 0,
-      unchanged: true,
-      elapsedMs: Date.now() - startedAt,
-    };
+    return buildReport({ action: null, ownedEntityId: args.previousOwned, unchanged: true }, startedAt);
   }
   const outcome = await waitForOutcome(page, baseline, args.timeoutMs ?? 15_000);
   if (outcome.errors.length > 0) {
     const cleanedErrorRows = await cleanupNewErrorRows(page, rowsBefore);
-    return {
-      action: outcome.action,
-      errors: outcome.errors,
-      warnings: outcome.warnings,
-      runtimeError: { present: false },
-      runtimeChecked: false,
-      ownedEntityId: args.previousOwned,
-      cleanedErrorRows,
-      unchanged: false,
-      elapsedMs: Date.now() - startedAt,
-    };
+    const { action, errors, warnings } = outcome;
+    return buildReport({ action, errors, warnings, ownedEntityId: args.previousOwned, cleanedErrorRows }, startedAt);
   }
   await realSleep(args.settleMs ?? 2500);
   const owned = pickOwnedEntity({
@@ -129,15 +126,14 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
     action: outcome.action,
   });
   const statusTitle = owned ? await readStableStatus(page, owned) : null;
-  return {
-    action: outcome.action,
-    errors: [],
-    warnings: outcome.warnings,
-    runtimeError: parseRuntimeStatus(statusTitle),
-    runtimeChecked: owned !== null,
-    ownedEntityId: owned,
-    cleanedErrorRows: 0,
-    unchanged: false,
-    elapsedMs: Date.now() - startedAt,
-  };
+  return buildReport(
+    {
+      action: outcome.action,
+      warnings: outcome.warnings,
+      runtimeError: parseRuntimeStatus(statusTitle),
+      runtimeChecked: owned !== null,
+      ownedEntityId: owned,
+    },
+    startedAt,
+  );
 }

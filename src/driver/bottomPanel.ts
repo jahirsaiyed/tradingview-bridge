@@ -31,11 +31,17 @@ async function clickToggle(page: Page): Promise<void> {
  */
 export async function collapseBottomPanel(page: Page): Promise<boolean> {
   if ((await readPanelState(page)) !== 'open') return false;
-  await clickToggle(page);
-  await pollUntil(async () => (await readPanelState(page)) === 'closed', {
-    timeoutMs: PANEL_SETTLE_MS,
-    intervalMs: 200,
-  });
+  try {
+    await clickToggle(page);
+    await pollUntil(async () => (await readPanelState(page)) === 'closed', {
+      timeoutMs: PANEL_SETTLE_MS,
+      intervalMs: 200,
+    });
+  } catch (error) {
+    // The click may already have landed: restore here, since the caller never learns we collapsed it.
+    await restoreBottomPanel(page).catch(() => undefined);
+    throw error;
+  }
   return true;
 }
 
