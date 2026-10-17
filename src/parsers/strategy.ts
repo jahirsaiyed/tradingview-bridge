@@ -1,4 +1,4 @@
-import { normalizeText, parseNumber } from './numbers.js';
+import { normalizeText, parseMoney, parseNumber } from './numbers.js';
 
 export interface MoneyWithPercent {
   readonly value: number;
@@ -25,9 +25,11 @@ export interface Trade {
 
 const LABELS = ['Total PnL', 'Max drawdown', 'Profitable trades', 'Profit factor'] as const;
 const END_MARKERS = ['Performance'] as const;
-const MONEY = /([+-]?[\d,]*\.?\d+)\s*([A-Z]{3})(?![A-Za-z])/;
-const PERCENT = /([+-]?\d*\.?\d+)\s*%/;
-const RATIO = /(\d+)\s*\/\s*(\d+)/;
+// Left boundary (?<![\d,.]) stops a match from starting inside a longer number (e.g. "234.57" in
+// "1,234.57"); 3-5 letter currency codes (USD, USDT) must not run into a further letter.
+const MONEY = /(?<![\d,.])[+-]?[\d,]*\.?\d+\s*[KMB]?\s*[A-Z]{3,5}(?![A-Za-z])/;
+const PERCENT = /(?<![\d,.])([+-]?[\d,]*\.?\d+)\s*%/;
+const RATIO = /(?<![\d,.])(\d[\d,]*)\s*\/\s*(\d[\d,]*)/;
 const PLAIN = /([+-]?[\d,]*\.?\d+)/;
 
 function sectionAfter(text: string, label: string): string | null {
@@ -41,12 +43,11 @@ function sectionAfter(text: string, label: string): string | null {
 }
 
 function moneyWithPercent(section: string | null): MoneyWithPercent | null {
-  if (!section) return null;
-  const money = MONEY.exec(section);
-  const value = money ? parseNumber(money[1]!) : null;
-  if (!money || value === null) return null;
+  const located = section ? MONEY.exec(section) : null;
+  const money = located ? parseMoney(located[0]) : null;
+  if (!section || !money) return null;
   const percent = PERCENT.exec(section);
-  return { value, unit: money[2]!, percent: percent ? parseNumber(percent[1]!) : null };
+  return { value: money.value, unit: money.unit, percent: percent ? parseNumber(percent[1]!) : null };
 }
 
 function profitable(section: string | null): KeyStats['profitableTrades'] {
@@ -54,8 +55,10 @@ function profitable(section: string | null): KeyStats['profitableTrades'] {
   const percent = PERCENT.exec(section);
   const ratio = RATIO.exec(section);
   const value = percent ? parseNumber(percent[1]!) : null;
-  if (value === null || !ratio) return null;
-  return { percent: value, wins: Number(ratio[1]), total: Number(ratio[2]) };
+  const wins = ratio ? parseNumber(ratio[1]!) : null;
+  const total = ratio ? parseNumber(ratio[2]!) : null;
+  if (value === null || wins === null || total === null) return null;
+  return { percent: value, wins, total };
 }
 
 export function parseKeyStats(raw: string): KeyStats {
@@ -72,7 +75,7 @@ export function parseKeyStats(raw: string): KeyStats {
 
 const DATE = String.raw`[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2}`;
 const NUM = String.raw`[+-]?[\d,]*\.?\d+`;
-const CCY = String.raw`[A-Z]{3}`;
+const CCY = String.raw`[A-Z]{3,5}(?![A-Za-z])`;
 const SIZE = String.raw`(${NUM})(?: ([KMB]))?`;
 const VALUE = String.raw`${NUM} ?[KMB]?${CCY}`;
 const CLOSED = new RegExp(

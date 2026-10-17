@@ -32,6 +32,45 @@ describe('parseKeyStats', () => {
     expect(parseKeyStats(text).totalPnl).toEqual({ value: -120.5, unit: 'USD', percent: -1.2 });
   });
 
+  it('parses 4-digit percents and comma ratios without partial matches', () => {
+    const text =
+      'Key stats Total PnL +12,345.67 USD +1,234.57% Max drawdown 5,000.00 USD 12.50% ' +
+      'Profitable trades 34.01% 1,067/3,137 Profit factor 1.131 Performance';
+    expect(parseKeyStats(text)).toEqual({
+      totalPnl: { value: 12345.67, unit: 'USD', percent: 1234.57 },
+      maxDrawdown: { value: 5000, unit: 'USD', percent: 12.5 },
+      profitableTrades: { percent: 34.01, wins: 1067, total: 3137 },
+      profitFactor: 1.131,
+    });
+  });
+
+  it('parses glued live text with comma ratios and negative percents', () => {
+    const live = 'Total PnL\n-1,391.32USDT-0.46%\nProfitable trades\n34.01%1,067/3,137\nProfit factor\n0.9';
+    const stats = parseKeyStats(live);
+    expect(stats.totalPnl).toEqual({ value: -1391.32, unit: 'USDT', percent: -0.46 });
+    expect(stats.profitableTrades).toEqual({ percent: 34.01, wins: 1067, total: 3137 });
+  });
+
+  it('accepts 3-5 letter currency codes such as USDT', () => {
+    const text = 'Total PnL +391.32 USDT +3.91% Max drawdown 698.36 USDT 6.32% Profit factor 1.1';
+    const stats = parseKeyStats(text);
+    expect(stats.totalPnl).toEqual({ value: 391.32, unit: 'USDT', percent: 3.91 });
+    expect(stats.maxDrawdown).toEqual({ value: 698.36, unit: 'USDT', percent: 6.32 });
+  });
+
+  it('accepts a K/M/B magnitude suffix on money values', () => {
+    const text = 'Total PnL +1.2K USD +12.00% Max drawdown 2.5 M USD 6.32% Profit factor 1.1';
+    const stats = parseKeyStats(text);
+    expect(stats.totalPnl).toEqual({ value: 1200, unit: 'USD', percent: 12 });
+    expect(stats.maxDrawdown).toEqual({ value: 2500000, unit: 'USD', percent: 6.32 });
+  });
+
+  it('rejects a currency code that runs into a lowercase letter (USDx)', () => {
+    const text = 'Total PnL +391.32 USDx +3.91% Max drawdown 698.36 USDxy 6.32% Profit factor 1.1';
+    expect(parseKeyStats(text).totalPnl).toBeNull();
+    expect(parseKeyStats(text).maxDrawdown).toBeNull();
+  });
+
   it('returns nulls for missing sections', () => {
     expect(parseKeyStats('nothing here')).toEqual({
       totalPnl: null,
@@ -79,6 +118,32 @@ describe('parseTradeRows', () => {
       netPnl: { value: 7.95, unit: 'USD' },
       returnPercent: null,
     });
+  });
+
+  it('parses USDT trade rows', () => {
+    const closed = CLOSED_LOSS.replace(/USD/g, 'USDT');
+    const open = OPEN_ROW.replace(/USD/g, 'USDT');
+    const { trades, unparsed } = parseTradeRows([closed, open]);
+    expect(unparsed).toBe(0);
+    expect(trades.map((t) => t.netPnl)).toEqual([
+      { value: -47.67, unit: 'USDT' },
+      { value: 7.95, unit: 'USDT' },
+    ]);
+    expect(trades[0]!.entryPrice).toBe(1.11802);
+  });
+
+  it('parses 4-digit prices and PnL with thousands separators', () => {
+    const row =
+      '12Short Exit Entry Oct 14, 2026, 17:00 Oct 13, 2026, 14:00 1,234.50 USD 1,250.00 USD 2 1,250.00 USD +31.00 USD +1,240.00%';
+    const { trades, unparsed } = parseTradeRows([row]);
+    expect(unparsed).toBe(0);
+    expect(trades[0]).toMatchObject({ exitPrice: 1234.5, entryPrice: 1250, size: 2, returnPercent: 1240 });
+  });
+
+  it('counts a row whose currency runs into a lowercase letter as unparsed', () => {
+    const { trades, unparsed } = parseTradeRows([CLOSED_LOSS.replace(/USD /g, 'USDx ')]);
+    expect(trades).toEqual([]);
+    expect(unparsed).toBe(1);
   });
 
   it('ignores header and empty rows, counts unparseable trade rows', () => {
