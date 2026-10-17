@@ -26,8 +26,9 @@ export interface Trade {
 const LABELS = ['Total PnL', 'Max drawdown', 'Profitable trades', 'Profit factor'] as const;
 const END_MARKERS = ['Performance'] as const;
 // Left boundary (?<![\d,.]) stops a match from starting inside a longer number (e.g. "234.57" in
-// "1,234.57"); 3-5 letter currency codes (USD, USDT) must not run into a further letter.
-const MONEY = /(?<![\d,.])[+-]?[\d,]*\.?\d+\s*[KMB]?\s*[A-Z]{3,5}(?![A-Za-z])/;
+// "1,234.57"); 3-5 letter currency codes (USD, USDT) must not run into a further letter. A K/M/B
+// magnitude is taken only as a separate letter followed by whitespace, never from inside a letter run.
+const MONEY = /(?<![\d,.])[+-]?[\d,]*\.?\d+(?:\s*[KMB](?=\s))?\s*[A-Z]{3,5}(?![A-Za-z])/;
 const PERCENT = /(?<![\d,.])([+-]?[\d,]*\.?\d+)\s*%/;
 const RATIO = /(?<![\d,.])(\d[\d,]*)\s*\/\s*(\d[\d,]*)/;
 const PLAIN = /([+-]?[\d,]*\.?\d+)/;

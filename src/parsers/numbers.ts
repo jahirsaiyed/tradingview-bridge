@@ -20,9 +20,14 @@ export function parseNumber(raw: string): number | null {
   return Number((Number(match[1]) * multiplier).toPrecision(12));
 }
 
+/**
+ * Parses `<number> [K|M|B] <CODE>`. The whole letter run is always the currency code: a K/M/B
+ * magnitude counts only as a separate letter followed by whitespace (`1.2K USD`, `2.5 M USD`), so
+ * `5 BUSD` is 5 BUSD and `10.43 KUSD` is 10.43 KUSD (a letter run is never split).
+ */
 export function parseMoney(raw: string): Money | null {
   const text = normalizeText(raw);
-  const match = /^([+-]?[\d,]*\.?\d+)\s*([KMB])?\s*([A-Z]{3,5})$/.exec(text);
+  const match = /^([+-]?[\d,]*\.?\d+)(?:\s*([KMB])\s+)?\s*([A-Z]{3,5})$/.exec(text);
   if (!match) return null;
   const value = parseNumber(`${match[1]}${match[2] ?? ''}`);
   return value === null ? null : { value, unit: match[3]! };

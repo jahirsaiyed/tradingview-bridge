@@ -30,8 +30,15 @@ describe('parseMoney', () => {
   it('parses signed amounts with a currency unit', () => {
     expect(parseMoney('\u221247.67 USD')).toEqual({ value: -47.67, unit: 'USD' });
   });
-  it('parses a magnitude suffix glued to the unit', () => {
-    expect(parseMoney('10.43 KUSD')).toEqual({ value: 10430, unit: 'USD' });
+  it('accepts a separate K/M/B magnitude before a separate currency code', () => {
+    expect(parseMoney('1.2K USD')).toEqual({ value: 1200, unit: 'USD' });
+    expect(parseMoney('2.5 M USD')).toEqual({ value: 2500000, unit: 'USD' });
+  });
+  it('never splits a letter run: the whole run is the currency code', () => {
+    expect(parseMoney('5 BUSD')).toEqual({ value: 5, unit: 'BUSD' });
+    expect(parseMoney('10 MANA')).toEqual({ value: 10, unit: 'MANA' });
+    expect(parseMoney('10.43 KUSD')).toEqual({ value: 10.43, unit: 'KUSD' });
+    expect(parseMoney('5 USDT')).toEqual({ value: 5, unit: 'USDT' });
   });
   it('returns null without a unit', () => {
     expect(parseMoney('12')).toBeNull();

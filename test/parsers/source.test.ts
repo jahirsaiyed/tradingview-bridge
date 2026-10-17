@@ -61,6 +61,10 @@ describe('extractScriptNames', () => {
     expect(extractScriptNames('library("MyLib", "Second")')).toEqual(names('MyLib', null));
     expect(extractScriptNames('library("MyLib", overlay=true)')).toEqual(names('MyLib', null));
   });
+  it('does not let an unterminated string swallow the next line', () => {
+    expect(extractScriptNames('indicator("Broken\n", shorttitle="S")')).toEqual(names(null, null));
+    expect(scriptTitles('x = "oops\nindicator("Real", "R")\ny = "z"')).toEqual([]);
+  });
   it('returns nulls when there is no declaration or the source is malformed', () => {
     expect(extractScriptNames('plot(close)')).toEqual(names(null, null));
     expect(extractScriptNames('indicator("unterminated')).toEqual(names(null, null));

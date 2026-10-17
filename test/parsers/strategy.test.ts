@@ -71,6 +71,26 @@ describe('parseKeyStats', () => {
     expect(parseKeyStats(text).maxDrawdown).toBeNull();
   });
 
+  it('reads a 4-5 letter code starting with K/M/B as the code, not as a magnitude', () => {
+    const text = 'Total PnL 10 MANA 1% Max drawdown 5 BUSD 12.50% Profit factor 1.1';
+    const stats = parseKeyStats(text);
+    expect(stats.totalPnl).toEqual({ value: 10, unit: 'MANA', percent: 1 });
+    expect(stats.maxDrawdown).toEqual({ value: 5, unit: 'BUSD', percent: 12.5 });
+  });
+
+  it('keeps glued USD and USDT values working next to the magnitude rule', () => {
+    expect(parseKeyStats('Max drawdown 698.36USD6.32%').maxDrawdown).toEqual({ value: 698.36, unit: 'USD', percent: 6.32 });
+    expect(parseKeyStats('Max drawdown 2.5 M USDT 6%').maxDrawdown).toEqual({ value: 2500000, unit: 'USDT', percent: 6 });
+  });
+
+  it('never starts a number inside a longer malformed number (left boundaries)', () => {
+    const text = 'Total PnL 5 USD 1.2.3% Max drawdown 1.2.3 USD 1% Profitable trades 50.00% 2.5/10 Profit factor 1';
+    const stats = parseKeyStats(text);
+    expect(stats.totalPnl).toEqual({ value: 5, unit: 'USD', percent: null });
+    expect(stats.maxDrawdown).toBeNull();
+    expect(stats.profitableTrades).toBeNull();
+  });
+
   it('returns nulls for missing sections', () => {
     expect(parseKeyStats('nothing here')).toEqual({
       totalPnl: null,
