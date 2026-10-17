@@ -124,13 +124,20 @@ export class TvDriver implements DriverApi {
       await this.page.reload({ waitUntil: 'domcontentloaded' });
       await this.page.locator(SEL.chartCanvas).first().waitFor({ timeout: RELOAD_TIMEOUT_MS });
     });
-    this.ownedEntityId = null;
+    // The owned id is kept through the reload: compile() keeps it only if that row is still on the
+    // chart under the script title, otherwise it claims only a fresh row or nothing (fail safe).
     this.runtimeCache = null;
-    await this.overlay();
-    await writeAndVerify(this.page, source);
-    const result = await this.compile();
-    if (!result.compiled) {
-      throw new TvError('INTERNAL', 'Re-compile after the report stall failed', { errors: result.errors });
+    try {
+      await this.overlay();
+      await writeAndVerify(this.page, source);
+      const result = await this.compile();
+      if (!result.compiled) {
+        throw new TvError('INTERNAL', 'Re-compile after the report stall failed', { errors: result.errors });
+      }
+    } catch (error) {
+      // Ownership could not be re-established after the reload: never keep a possibly stale id.
+      this.ownedEntityId = null;
+      throw error;
     }
   }
 

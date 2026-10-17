@@ -5,7 +5,7 @@ import { parseRuntimeStatus, type RuntimeError } from '../parsers/runtime.js';
 import { readConsole, triggerCompile } from './editor.js';
 import { findNewCompileErrorRows } from './errorRows.js';
 import { listLegendRows, readStatusTitle, removeLegendRow } from './legend.js';
-import { pickOwnedEntity, type LegendRow } from './ownership.js';
+import { pickOwnedEntity, retainPresentOwned, type LegendRow } from './ownership.js';
 import { pollUntil, realSleep } from './waits.js';
 
 export interface CompileReport {
@@ -109,13 +109,18 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
   const baseline = (await readConsole(page)).entries.length;
   const rowsBefore = await listLegendRows(page);
   if (!(await triggerCompile(page))) {
-    return buildReport({ action: null, ownedEntityId: args.previousOwned, unchanged: true }, startedAt);
+    // Keep the previous id only while it is still on the chart under the script title (e.g. after a reload).
+    const { scriptTitle, previousOwned } = args;
+    const ownedEntityId = pickOwnedEntity({ before: rowsBefore, after: rowsBefore, scriptTitle, previousOwned, action: null });
+    return buildReport({ action: null, ownedEntityId, unchanged: true }, startedAt);
   }
   const outcome = await waitForOutcome(page, baseline, args.timeoutMs ?? 15_000);
   if (outcome.errors.length > 0) {
     const cleanedErrorRows = await cleanupNewErrorRows(page, rowsBefore);
     const { action, errors, warnings } = outcome;
-    return buildReport({ action, errors, warnings, ownedEntityId: args.previousOwned, cleanedErrorRows }, startedAt);
+    // A failed compile may carry a new title, so only presence is checked here.
+    const ownedEntityId = retainPresentOwned(args.previousOwned, rowsBefore);
+    return buildReport({ action, errors, warnings, ownedEntityId, cleanedErrorRows }, startedAt);
   }
   await realSleep(args.settleMs ?? 2500);
   const owned = pickOwnedEntity({
