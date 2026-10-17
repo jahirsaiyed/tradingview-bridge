@@ -3,6 +3,9 @@ import { resolveCdpEndpoint } from '../config.js';
 import { TvError } from '../result.js';
 import { isTradingViewChartUrl } from './chartUrl.js';
 
+/** Default bound for Playwright actions without an explicit timeout (navigation keeps 30 s). */
+export const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
+
 export interface Connection {
   readonly browser: Browser;
   readonly page: Page;
@@ -26,5 +29,6 @@ export async function connect(endpoint: string = resolveCdpEndpoint()): Promise<
   if (!page) {
     throw new TvError('NO_CHART', 'No TradingView chart tab is open in the dedicated Chrome', { endpoint });
   }
+  page.setDefaultTimeout(DEFAULT_ACTION_TIMEOUT_MS);
   return { browser, page };
 }

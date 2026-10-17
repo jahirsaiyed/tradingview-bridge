@@ -10,7 +10,8 @@ import { removeLegendRow } from './legend.js';
 import { createPageLayoutOps } from './pageLayoutOps.js';
 import { readPineLogs } from './logsReader.js';
 import { readKeyStats, readTrades } from './strategyReader.js';
-import { isLoggedIn, navigateToChart, readChartLabel, takeScreenshot } from './chart.js';
+import { ensureLoggedIn, isLoggedIn, navigateToChart, readChartLabel, takeScreenshot } from './chart.js';
+import { DEFAULT_ACTION_TIMEOUT_MS } from './connection.js';
 import { runSelftest, summarizeChecks } from './selftest.js';
 import { cacheForSource, resolveRuntime, type RuntimeCache } from './runtimeCache.js';
 import type { CompilePayload, DriverApi, SelftestPayload, StatusInfo, StrategyPayload } from './types.js';
@@ -24,10 +25,18 @@ export class TvDriver implements DriverApi {
   private readonly layoutOps: LayoutOps;
 
   constructor(readonly page: Page) {
+    // Bounds every Playwright action without an explicit timeout; navigation keeps its 30 s default.
+    page.setDefaultTimeout(DEFAULT_ACTION_TIMEOUT_MS);
     this.layoutOps = createPageLayoutOps(page);
   }
 
-  private overlay() {
+  // Every tool except status passes through here (directly or via overlay()).
+  private async ready(): Promise<void> {
+    await ensureLoggedIn(this.page);
+  }
+
+  private async overlay() {
+    await this.ready();
     return ensureLayout(this.layoutOps, 'overlay');
   }
 
@@ -44,9 +53,11 @@ export class TvDriver implements DriverApi {
   }
 
   async openChart(args: { symbol?: string; interval?: string }): Promise<{ url: string }> {
+    await this.ready();
     const url = await navigateToChart(this.page, args);
     this.ownedEntityId = null; // a reload drops unsaved chart contents
     this.runtimeCache = null;
+    this.lastSource = null; // the reloaded editor may hold a different script
     return { url };
   }
 
@@ -60,7 +71,9 @@ export class TvDriver implements DriverApi {
 
   async getScript(): Promise<{ source: string }> {
     await this.overlay();
-    return { source: await copySource(this.page) };
+    const source = await copySource(this.page);
+    this.lastSource = source; // title and runtime cache follow the real editor text
+    return { source };
   }
 
   async compile(): Promise<CompilePayload> {
@@ -97,6 +110,7 @@ export class TvDriver implements DriverApi {
   }
 
   async readPineLogs() {
+    await this.ready();
     return readPineLogs(this.page, this.layoutOps);
   }
 

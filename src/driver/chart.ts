@@ -19,6 +19,16 @@ export async function isLoggedIn(page: Page): Promise<boolean> {
   return (await page.locator(SEL.signInButton).count()) === 0;
 }
 
+// Same heuristic as isLoggedIn, so it is trusted only to pass on the logged-in chart (proved live).
+export async function ensureLoggedIn(page: Page): Promise<void> {
+  if (!(await isLoggedIn(page))) {
+    throw new TvError(
+      'NOT_LOGGED_IN',
+      'TradingView shows the sign-in button: log in in the dedicated Chrome window, then retry',
+    );
+  }
+}
+
 export async function takeScreenshot(page: Page): Promise<Buffer> {
   return page.screenshot({ type: 'png' });
 }
