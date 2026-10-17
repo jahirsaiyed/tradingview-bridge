@@ -31,6 +31,13 @@ export function resolveRuntime(
   source: string,
   report: RuntimeInput,
 ): { view: RuntimeView; next: RuntimeCache | null } {
+  if (report.unchanged && report.runtimeChecked) {
+    // The owned row's status was read again: it replaces whatever was cached for this source.
+    return {
+      view: { runtimeError: report.runtimeError, runtimeChecked: true },
+      next: { source, runtimeError: report.runtimeError },
+    };
+  }
   if (report.unchanged) {
     const known = cacheForSource(cache, source);
     return {

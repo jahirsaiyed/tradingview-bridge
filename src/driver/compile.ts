@@ -7,7 +7,9 @@ import { freshEntries } from './compileState.js';
 import { findNewCompileErrorRows } from './errorRows.js';
 import { listLegendRows, removeLegendRow } from './legend.js';
 import { pickOwnedEntity, retainPresentOwned, type LegendRow } from './ownership.js';
+import { settleOwned } from './ownedSettle.js';
 import { waitForRowSettled, type RowSettleResult } from './rowSettle.js';
+import { DEFAULT_SETTLE_RULE } from './statusSettle.js';
 import { pollUntil } from './waits.js';
 
 export interface CompileReport {
@@ -109,36 +111,39 @@ async function findOwnedRow(
   );
 }
 
-const OWNED_ROW_PICKS = 3;
-
-// The first add shows a transient legend row that TradingView replaces after ~0.6 s with the real one
-// (new entity id): when the picked row disappears, pick again (bounded).
+// Picks the owned row and waits until it settled, re-picking a row TradingView replaced (see settleOwned).
 async function settleOwnedRow(
   page: Page,
   rowsBefore: readonly LegendRow[],
   args: CompileArgs,
-  action: 'added' | 'updated' | null,
+  triggered: { readonly at: number; readonly action: 'added' | 'updated' | null },
 ): Promise<{ owned: string | null; status: RowSettleResult | null }> {
   const timeoutMs = args.runtimeTimeoutMs ?? RUNTIME_SETTLE_TIMEOUT_MS;
-  for (let pick = 0; pick < OWNED_ROW_PICKS; pick += 1) {
-    const owned = await findOwnedRow(page, rowsBefore, args, action);
-    if (!owned) return { owned: null, status: null };
-    const status = await waitForRowSettled(page, owned, timeoutMs);
-    if (status.present) return { owned, status };
-  }
-  return { owned: null, status: null };
+  return settleOwned({
+    find: () => findOwnedRow(page, rowsBefore, args, triggered.action),
+    settle: (id) => waitForRowSettled(page, id, timeoutMs, DEFAULT_SETTLE_RULE, triggered.at),
+    isPresent: async (id) => (await listLegendRows(page)).some((row) => row.entityId === id),
+  });
+}
+
+// Unchanged source: nothing recompiles, but a slow script may have raised its runtime error since the last
+// read, so the owned row's status is read again once it is not loading.
+async function unchangedReport(page: Page, rowsBefore: readonly LegendRow[], args: CompileArgs, startedAt: number): Promise<CompileReport> {
+  const { scriptTitles, previousOwned } = args;
+  // Keep the previous id only while it is still on the chart under the script title (e.g. after a reload).
+  const ownedEntityId = pickOwnedEntity({ before: rowsBefore, after: rowsBefore, scriptTitles, previousOwned, action: null });
+  const status = ownedEntityId ? await waitForRowSettled(page, ownedEntityId, args.runtimeTimeoutMs ?? RUNTIME_SETTLE_TIMEOUT_MS) : null;
+  const runtimeChecked = status?.settled === true;
+  const runtimeError = runtimeChecked ? parseRuntimeStatus(status?.title ?? null) : { present: false };
+  return buildReport({ action: null, ownedEntityId, unchanged: true, runtimeError, runtimeChecked }, startedAt);
 }
 
 export async function compileAndCollect(page: Page, args: CompileArgs): Promise<CompileReport> {
   const startedAt = Date.now();
   const baseline = (await readConsole(page)).entries.length;
   const rowsBefore = await listLegendRows(page);
-  if (!(await triggerCompile(page))) {
-    // Keep the previous id only while it is still on the chart under the script title (e.g. after a reload).
-    const { scriptTitles, previousOwned } = args;
-    const ownedEntityId = pickOwnedEntity({ before: rowsBefore, after: rowsBefore, scriptTitles, previousOwned, action: null });
-    return buildReport({ action: null, ownedEntityId, unchanged: true }, startedAt);
-  }
+  const triggeredAt = Date.now();
+  if (!(await triggerCompile(page))) return unchangedReport(page, rowsBefore, args, startedAt);
   const outcome = await waitForOutcome(page, baseline, args.timeoutMs ?? 15_000);
   if (outcome.errors.length > 0) {
     const cleanedErrorRows = await cleanupNewErrorRows(page, rowsBefore);
@@ -147,7 +152,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
     const ownedEntityId = retainPresentOwned(args.previousOwned, rowsBefore);
     return buildReport({ action, errors, warnings, ownedEntityId, cleanedErrorRows }, startedAt);
   }
-  const { owned, status } = await settleOwnedRow(page, rowsBefore, args, outcome.action);
+  const { owned, status } = await settleOwnedRow(page, rowsBefore, args, { at: triggeredAt, action: outcome.action });
   return buildReport(
     {
       action: outcome.action,

@@ -28,6 +28,7 @@ export default defineConfig({
         'src/driver/session.ts',
         'src/driver/sessionGuard.ts',
         'src/driver/rowSettle.ts',
+        'src/driver/ownedSettle.ts',
       ],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },

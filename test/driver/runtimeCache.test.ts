@@ -25,6 +25,20 @@ describe('runtimeCache', () => {
     expect(next).toBeNull();
   });
 
+  it('lets a fresh read on an unchanged source override the cache (checked)', () => {
+    const cache = { source: 'a', runtimeError: { present: false } as const };
+    const { view, next } = resolveRuntime(cache, 'a', { ...same, runtimeError: RE, runtimeChecked: true });
+    expect(view).toEqual({ runtimeError: RE, runtimeChecked: true });
+    expect(next).toEqual({ source: 'a', runtimeError: RE });
+  });
+
+  it('keeps the cache, unchecked, for an unchanged source without an owned row read', () => {
+    const cache = { source: 'a', runtimeError: { present: false } as const };
+    const { view, next } = resolveRuntime(cache, 'a', same);
+    expect(view).toEqual({ runtimeError: { present: false }, runtimeChecked: false });
+    expect(next).toBe(cache);
+  });
+
   it('keeps the previous cache after a failed compile', () => {
     const cache = { source: 'b', runtimeError: RE };
     const { next } = resolveRuntime(cache, 'a', { ...fresh, hasErrors: true, runtimeError: { present: false } });

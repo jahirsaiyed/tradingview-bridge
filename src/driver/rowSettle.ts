@@ -20,26 +20,31 @@ export interface RowSettleResult {
 /**
  * Samples the legend row until it is settled (see settledStatus) or `timeoutMs` passed. Returns
  * present=false at once when the row is absent at the first read, or once it stayed absent for
- * MISSING_GRACE_MS (a briefly missing row counts as still calculating).
+ * MISSING_GRACE_MS (a briefly missing row counts as still calculating). `triggeredAt` (epoch ms of the
+ * compile trigger) dates the samples for the empty-status rule; without it the trigger counts as long past.
  */
 export async function waitForRowSettled(
   page: Page,
   entityId: string,
   timeoutMs: number,
   rule: SettleRule = DEFAULT_SETTLE_RULE,
+  triggeredAt?: number,
 ): Promise<RowSettleResult> {
   const startedAt = Date.now();
+  const origin = triggeredAt ?? startedAt - rule.nullMinElapsedMs;
   let samples: readonly StatusSample[] = [];
   let missingSince: number | null = null;
   for (;;) {
     const row = await readRowStatus(page, entityId);
-    const atMs = Date.now() - startedAt;
+    const now = Date.now();
+    const atMs = now - startedAt;
     missingSince = row === null ? (missingSince ?? atMs) : null;
     const missingFor = missingSince === null ? 0 : atMs - missingSince;
     if (row === null && (samples.length === 0 || missingFor >= MISSING_GRACE_MS)) {
       return { settled: false, title: null, present: false };
     }
-    samples = [...samples, { atMs, loading: row?.loading ?? true, title: row?.title ?? null }].slice(-MAX_SAMPLES);
+    const sample = { atMs: now - origin, loading: row?.loading ?? true, title: row?.title ?? null };
+    samples = [...samples, sample].slice(-MAX_SAMPLES);
     const status = settledStatus(samples, rule);
     if (status.settled || atMs >= timeoutMs) return { settled: status.settled, title: status.title, present: row !== null };
     await realSleep(SAMPLE_INTERVAL_MS);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { settledStatus, type StatusSample } from '../../src/driver/statusSettle.js';
 
-const RULE = { quietMs: 700, nullQuietMs: 1500 };
+const RULE = { quietMs: 700, nullQuietMs: 1500, nullMinElapsedMs: 2500 };
 const s = (atMs: number, loading: boolean, title: string | null): StatusSample => ({ atMs, loading, title });
 const OK = 'Opened in Pine Editor';
 const RE = 'Runtime error: RE10045 \u00b7 Opened in Pine Editor';
@@ -35,8 +35,19 @@ describe('settledStatus', () => {
 
   it('needs the longer nullQuietMs before an empty status counts as final', () => {
     // Live trace: the runtime error badge appeared ~440 ms after loading had cleared.
-    expect(settledStatus([s(0, false, null), s(1000, false, null)], RULE).settled).toBe(false);
-    expect(settledStatus([s(0, false, null), s(1500, false, null)], RULE)).toEqual({ settled: true, title: null });
+    const afterLoading = [s(0, true, null), s(100, false, null)];
+    expect(settledStatus([...afterLoading, s(1000, false, null)], RULE).settled).toBe(false);
+    expect(settledStatus([...afterLoading, s(1600, false, null)], RULE)).toEqual({ settled: true, title: null });
+  });
+
+  it('treats an empty status as final without a loading sample only after nullMinElapsedMs', () => {
+    // No loading seen: the read may have started before the row began calculating.
+    expect(settledStatus([s(0, false, null), s(2000, false, null)], RULE).settled).toBe(false);
+    expect(settledStatus([s(1000, false, null), s(2500, false, null)], RULE)).toEqual({ settled: true, title: null });
+  });
+
+  it('does not apply nullMinElapsedMs to a non-empty status', () => {
+    expect(settledStatus([s(0, false, OK), s(700, false, OK)], RULE)).toEqual({ settled: true, title: OK });
   });
 
   it('uses the default rule when none is given', () => {
