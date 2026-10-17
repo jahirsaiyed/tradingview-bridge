@@ -8,7 +8,7 @@ describe('pickOwnedEntity', () => {
     const owned = pickOwnedEntity({
       before: [row('a', 'User Indicator')],
       after: [row('a', 'User Indicator'), row('b', 'Spike strat')],
-      scriptTitle: 'Spike strat',
+      scriptTitles: ['Spike strat'],
       previousOwned: null,
       action: 'added',
     });
@@ -19,7 +19,7 @@ describe('pickOwnedEntity', () => {
     const owned = pickOwnedEntity({
       before: [row('b', 'Spike strat')],
       after: [row('b', 'Spike strat 10 30')],
-      scriptTitle: 'Spike strat',
+      scriptTitles: ['Spike strat'],
       previousOwned: 'b',
       action: 'updated',
     });
@@ -30,7 +30,7 @@ describe('pickOwnedEntity', () => {
     const owned = pickOwnedEntity({
       before: [row('c', 'Spike strat')],
       after: [row('c', 'Spike strat')],
-      scriptTitle: 'Spike strat',
+      scriptTitles: ['Spike strat'],
       previousOwned: null,
       action: 'updated',
     });
@@ -41,7 +41,7 @@ describe('pickOwnedEntity', () => {
     const owned = pickOwnedEntity({
       before: [row('u', 'Spike strat by someone'), row('v', 'Volume')],
       after: [row('u', 'Spike strat by someone'), row('v', 'Volume')],
-      scriptTitle: 'Spike strat',
+      scriptTitles: ['Spike strat'],
       previousOwned: null,
       action: 'updated',
     });
@@ -52,7 +52,7 @@ describe('pickOwnedEntity', () => {
     const owned = pickOwnedEntity({
       before: [row('u', 'Spike strat')],
       after: [row('u', 'Spike strat')],
-      scriptTitle: 'Spike strat',
+      scriptTitles: ['Spike strat'],
       previousOwned: 'gone',
       action: 'updated',
     });
@@ -75,7 +75,7 @@ describe('pickOwnedEntity (unchanged and failed compiles)', () => {
   it('keeps a still-present, title-matching owned row when nothing new appeared', () => {
     const rows = [row('a', 'User'), row('b', 'Spike strat 10 30')];
     expect(
-      pickOwnedEntity({ before: rows, after: rows, scriptTitle: 'Spike strat', previousOwned: 'b', action: null }),
+      pickOwnedEntity({ before: rows, after: rows, scriptTitles: ['Spike strat'], previousOwned: 'b', action: null }),
     ).toBe('b');
   });
 
@@ -83,19 +83,90 @@ describe('pickOwnedEntity (unchanged and failed compiles)', () => {
     const owned = pickOwnedEntity({
       before: [row('u', 'Spike strat')],
       after: [row('u', 'Spike strat'), row('n1', 'Spike strat'), row('n2', 'Spike strat')],
-      scriptTitle: 'Spike strat',
+      scriptTitles: ['Spike strat'],
       previousOwned: null,
       action: 'added',
     });
     expect(owned).toBeNull();
   });
 
-  it('returns null when nothing matches or the title is unknown', () => {
+  it('returns null when nothing matches or no title is known', () => {
     expect(
-      pickOwnedEntity({ before: [], after: [row('a', 'Other')], scriptTitle: 'Spike', previousOwned: null, action: 'added' }),
+      pickOwnedEntity({ before: [], after: [row('a', 'Other')], scriptTitles: ['Spike'], previousOwned: null, action: 'added' }),
     ).toBeNull();
     expect(
-      pickOwnedEntity({ before: [], after: [row('a', 'Other')], scriptTitle: null, previousOwned: null, action: 'added' }),
+      pickOwnedEntity({ before: [], after: [row('a', 'Other')], scriptTitles: [], previousOwned: null, action: 'added' }),
     ).toBeNull();
+  });
+});
+
+describe('pickOwnedEntity (several script names)', () => {
+  it('claims a fresh row that shows the short title', () => {
+    const owned = pickOwnedEntity({
+      before: [row('u', 'Vol')],
+      after: [row('u', 'Vol'), row('n', 'MyStrat 10 30')],
+      scriptTitles: ['My Strategy', 'MyStrat'],
+      previousOwned: null,
+      action: 'added',
+    });
+    expect(owned).toBe('n');
+  });
+
+  it('claims a fresh row that shows the long title when both names are given', () => {
+    const owned = pickOwnedEntity({
+      before: [],
+      after: [row('n', 'My Strategy')],
+      scriptTitles: ['My Strategy', 'MyStrat'],
+      previousOwned: null,
+      action: 'added',
+    });
+    expect(owned).toBe('n');
+  });
+
+  it('keeps the previous owned row when it matches any of the names', () => {
+    const rows = [row('b', 'MyStrat'), row('c', 'Other')];
+    expect(
+      pickOwnedEntity({ before: rows, after: rows, scriptTitles: ['My Strategy', 'MyStrat'], previousOwned: 'b', action: null }),
+    ).toBe('b');
+  });
+
+  it('does not keep a previous owned row whose title matches none of the names', () => {
+    const owned = pickOwnedEntity({
+      before: [row('b', 'Renamed script')],
+      after: [row('b', 'Renamed script')],
+      scriptTitles: ['Spike strat'],
+      previousOwned: 'b',
+      action: null,
+    });
+    expect(owned).toBeNull();
+  });
+
+  it('never claims a pre-existing row matching either name', () => {
+    const rows = [row('u', 'MyStrat by someone'), row('v', 'My Strategy')];
+    expect(
+      pickOwnedEntity({ before: rows, after: rows, scriptTitles: ['My Strategy', 'MyStrat'], previousOwned: null, action: 'updated' }),
+    ).toBeNull();
+  });
+
+  it('claims nothing when two fresh rows match different names', () => {
+    const owned = pickOwnedEntity({
+      before: [],
+      after: [row('n1', 'My Strategy'), row('n2', 'MyStrat')],
+      scriptTitles: ['My Strategy', 'MyStrat'],
+      previousOwned: null,
+      action: 'added',
+    });
+    expect(owned).toBeNull();
+  });
+
+  it('ignores empty names instead of matching every row', () => {
+    const owned = pickOwnedEntity({
+      before: [],
+      after: [row('n', 'Anything')],
+      scriptTitles: [''],
+      previousOwned: null,
+      action: 'added',
+    });
+    expect(owned).toBeNull();
   });
 });

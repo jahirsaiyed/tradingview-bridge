@@ -7,21 +7,23 @@ export interface LegendRow {
 export interface OwnershipArgs {
   readonly before: readonly LegendRow[];
   readonly after: readonly LegendRow[];
-  readonly scriptTitle: string | null;
+  /** Every non-empty name the script declares (title and/or short title); the legend shows either. */
+  readonly scriptTitles: readonly string[];
   readonly previousOwned: string | null;
   /** Informational only: ownership never depends on it (an 'updated' action proves nothing about who added the row). */
   readonly action: 'added' | 'updated' | null;
 }
 
 /**
- * Ownership is claimed only for (i) the previously owned row while it still matches the title, or
- * (ii) exactly one FRESH row (absent from `before`) matching the title. Anything else is null, so a
- * pre-existing user row is never claimed by its title.
+ * Ownership is claimed only for (i) the previously owned row while it still matches a script name, or
+ * (ii) exactly one FRESH row (absent from `before`) matching a script name. Anything else is null, so
+ * a pre-existing user row is never claimed by its title. A row matches when its legend title starts
+ * with ANY of the names (TradingView shows the short title when one is declared).
  */
 export function pickOwnedEntity(args: OwnershipArgs): string | null {
-  if (!args.scriptTitle) return null;
-  const title = args.scriptTitle;
-  const matches = args.after.filter((row) => row.title.startsWith(title));
+  const names = args.scriptTitles.filter((name) => name.length > 0);
+  if (names.length === 0) return null;
+  const matches = args.after.filter((row) => names.some((name) => row.title.startsWith(name)));
   if (args.previousOwned && matches.some((row) => row.entityId === args.previousOwned)) {
     return args.previousOwned;
   }

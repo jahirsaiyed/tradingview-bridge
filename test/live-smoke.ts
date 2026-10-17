@@ -8,7 +8,7 @@ import { ensureLayout } from '../src/driver/layout.js';
 import { SOURCES } from './fixtures/pine.js';
 import { writeAndVerify } from '../src/driver/editor.js';
 import { compileAndCollect } from '../src/driver/compile.js';
-import { extractScriptTitle } from '../src/parsers/source.js';
+import { scriptTitles } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
 import { readKeyStats, readTrades } from '../src/driver/strategyReader.js';
 import { readPineLogs } from '../src/driver/logsReader.js';
@@ -44,11 +44,11 @@ const sections: Record<string, Section> = {
   compile: async (page) => {
     requireOverwriteFlag();
     await ensureLayout(createPageLayoutOps(page), 'overlay');
-    const title = extractScriptTitle(SOURCES.broken);
+    const titles = scriptTitles(SOURCES.broken);
 
     await writeAndVerify(page, SOURCES.broken);
     const rowsBeforeBroken = await listLegendRows(page);
-    const bad = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
+    const bad = await compileAndCollect(page, { previousOwned: state.owned, scriptTitles: titles });
     check(bad.errors.length >= 1, 'broken source reports a compile error');
     check(bad.errors[0]!.line === 7, `error is on line 7 (got ${bad.errors[0]!.line})`);
     check(bad.cleanedErrorRows >= 1, `failed compile junk row removed (${bad.cleanedErrorRows})`);
@@ -58,7 +58,7 @@ const sections: Record<string, Section> = {
     );
 
     await writeAndVerify(page, SOURCES.valid);
-    const good = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
+    const good = await compileAndCollect(page, { previousOwned: state.owned, scriptTitles: titles });
     check(good.errors.length === 0 && good.action !== null, `valid source compiles (${good.action})`);
     check(good.runtimeChecked === true, 'valid source legend status was read');
     check(!good.runtimeError.present, 'valid source has no runtime error');
@@ -66,7 +66,7 @@ const sections: Record<string, Section> = {
     check(state.owned !== null, 'bridge owns the legend row it added');
 
     await writeAndVerify(page, SOURCES.runtimeError);
-    const runtime = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
+    const runtime = await compileAndCollect(page, { previousOwned: state.owned, scriptTitles: titles });
     check(runtime.errors.length === 0, 'runtime-error source compiles');
     check(runtime.runtimeChecked === true, 'runtime-error source legend status was read');
     check(
@@ -91,7 +91,7 @@ const sections: Record<string, Section> = {
     await writeAndVerify(page, SOURCES.strategy);
     const report = await compileAndCollect(page, {
       previousOwned: state.owned,
-      scriptTitle: extractScriptTitle(SOURCES.strategy),
+      scriptTitles: scriptTitles(SOURCES.strategy),
     });
     check(report.errors.length === 0, 'strategy compiles');
     state.owned = report.ownedEntityId;
@@ -105,12 +105,12 @@ const sections: Record<string, Section> = {
     check(unparsed === 0, `no unparsed trade rows (got ${unparsed})`);
 
     // Strategy Tester is still open here: re-compile and removal must both cope with that.
-    const title = extractScriptTitle(SOURCES.strategy);
-    const same = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
+    const titles = scriptTitles(SOURCES.strategy);
+    const same = await compileAndCollect(page, { previousOwned: state.owned, scriptTitles: titles });
     check(same.unchanged && same.errors.length === 0, 'unchanged source is reported as unchanged, not a timeout');
     await writeAndVerify(page, `${SOURCES.strategy}// recompile ${Date.now()}
 `);
-    const again = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
+    const again = await compileAndCollect(page, { previousOwned: state.owned, scriptTitles: titles });
     check(again.errors.length === 0, 're-compile with the tester open has no errors');
     check(again.action === 'updated', `re-compile updates the strategy (${again.action})`);
     check(again.ownedEntityId === state.owned, 're-compile keeps the same owned legend row');
@@ -127,7 +127,7 @@ const sections: Record<string, Section> = {
       await writeAndVerify(page, SOURCES.strategy);
       const report = await compileAndCollect(page, {
         previousOwned: state.owned,
-        scriptTitle: extractScriptTitle(SOURCES.strategy),
+        scriptTitles: scriptTitles(SOURCES.strategy),
       });
       check(report.errors.length === 0, 'strategy compiles');
       // An unchanged result means the script is already on the chart; keep the recorded row.

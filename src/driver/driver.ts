@@ -1,7 +1,7 @@
 import type { Page } from 'playwright-core';
 import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
-import { extractScriptTitle } from '../parsers/source.js';
+import { scriptTitles } from '../parsers/source.js';
 import { compileAndCollect } from './compile.js';
 import { withBeforeUnloadAccept } from './dialogs.js';
 import { copySource, writeAndVerify } from './editor.js';
@@ -81,7 +81,7 @@ export class TvDriver implements DriverApi {
     const source = this.lastSource ?? (await copySource(this.page));
     const report = await compileAndCollect(this.page, {
       previousOwned: this.ownedEntityId,
-      scriptTitle: extractScriptTitle(source),
+      scriptTitles: scriptTitles(source),
     });
     this.ownedEntityId = report.ownedEntityId;
     const { view, next } = resolveRuntime(this.runtimeCache, source, {

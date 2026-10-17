@@ -40,7 +40,8 @@ async function readStableStatus(page: Page, entityId: string): Promise<string | 
 
 export interface CompileArgs {
   readonly previousOwned: string | null;
-  readonly scriptTitle: string | null;
+  /** Declared script names (title and/or short title); empty when unknown. */
+  readonly scriptTitles: readonly string[];
   readonly timeoutMs?: number;
   readonly settleMs?: number;
 }
@@ -110,8 +111,8 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
   const rowsBefore = await listLegendRows(page);
   if (!(await triggerCompile(page))) {
     // Keep the previous id only while it is still on the chart under the script title (e.g. after a reload).
-    const { scriptTitle, previousOwned } = args;
-    const ownedEntityId = pickOwnedEntity({ before: rowsBefore, after: rowsBefore, scriptTitle, previousOwned, action: null });
+    const { scriptTitles, previousOwned } = args;
+    const ownedEntityId = pickOwnedEntity({ before: rowsBefore, after: rowsBefore, scriptTitles, previousOwned, action: null });
     return buildReport({ action: null, ownedEntityId, unchanged: true }, startedAt);
   }
   const outcome = await waitForOutcome(page, baseline, args.timeoutMs ?? 15_000);
@@ -126,7 +127,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
   const owned = pickOwnedEntity({
     before: rowsBefore,
     after: await listLegendRows(page),
-    scriptTitle: args.scriptTitle,
+    scriptTitles: args.scriptTitles,
     previousOwned: args.previousOwned,
     action: outcome.action,
   });
