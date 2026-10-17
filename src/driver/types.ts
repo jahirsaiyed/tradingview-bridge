@@ -32,6 +32,11 @@ export interface CompilePayload {
   readonly cleanedErrorRows: number;
   /** True when the source already matched the chart, so nothing was compiled again. */
   readonly unchanged: boolean;
+  /**
+   * Present (true) only with unchanged=true and compiled=false: the bridge has no compile outcome for this
+   * source in this session and no owned row on the chart, so whether it compiled is unknown.
+   */
+  readonly unknownState?: true;
   readonly elapsedMs: number;
 }
 

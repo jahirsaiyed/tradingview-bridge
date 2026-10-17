@@ -49,7 +49,13 @@ pristine: use `overwriteExisting: true` after confirming with the owner.
 
 ### `tv_compile` result fields
 
-- `compiled`: `false` means compile errors (listed in `errors` with line, column and code).
+- `compiled`: `false` means compile errors (listed in `errors` with line, column and code). For an
+  `unchanged` source nothing is compiled, so `compiled` reflects the last real compile of that exact source in
+  this session: after a failed compile it stays `false` and the remembered `errors` are returned again. With
+  no remembered compile for it (for example after `tv_open_chart`, `tv_remove_script`, a reload recovery or a
+  new MCP session), `compiled` is `true` only when the bridge's owned legend row is on the chart; otherwise
+  the result is `compiled: false, unchanged: true, unknownState: true` (the bridge cannot tell whether that
+  source compiles: change the source and compile again, or ask the owner).
 - `warnings`: compiler warnings. Best effort, unverified: the `Warning at L:C` console format has never been
   observed live, so an empty `warnings` list does not prove there were none.
 - `runtimeError`: a runtime error detected after the script settles on the chart.

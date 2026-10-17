@@ -222,6 +222,11 @@ const sections: Record<string, Section> = {
       const broken = await driver.compile();
       check(!broken.compiled && broken.errors.length >= 1, `broken source fails (${broken.errors.length} errors)`);
       check(broken.cleanedErrorRows >= 1, `failed compile junk rows cleaned (${broken.cleanedErrorRows})`);
+      const brokenAgain = await driver.compile();
+      check(
+        !brokenAgain.compiled && brokenAgain.errors.length >= 1,
+        `retrying the broken source never claims success (unchanged=${brokenAgain.unchanged})`,
+      );
 
       await scratchGuardCheck(page, driver);
       check((await driver.getScript()).source.includes('TV Bridge Smoke'), 'set/get script round trip');

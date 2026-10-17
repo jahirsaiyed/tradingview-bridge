@@ -149,6 +149,8 @@ describe('MCP tools', () => {
     expect(compile).toMatch(/raise its error later/);
     expect(compile).toMatch(/reads the owned row's status again/);
     expect(compile).not.toMatch(/cached result\)/);
+    expect(compile).toContain('unknownState');
+    expect(compile).toMatch(/after a failed compile it stays compiled=false/);
     expect(describe('tv_status')).toContain('sessionDisconnected');
   });
 

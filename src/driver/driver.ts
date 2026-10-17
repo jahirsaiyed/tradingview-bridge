@@ -3,7 +3,7 @@ import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { scriptTitles } from '../parsers/source.js';
 import { compileAndCollect } from './compile.js';
-import { deriveCompiled } from './compileState.js';
+import { memoryForSource, resolveCompiled, type CompileMemory } from './compileMemory.js';
 import { withBeforeUnloadAccept } from './dialogs.js';
 import { copySource, pasteMismatch, writeAndReadBack, writeAndVerify } from './editor.js';
 import { ensureLayout, type LayoutOps } from './layout.js';
@@ -58,6 +58,8 @@ export class TvDriver implements DriverApi {
   private ownedEntityId: string | null = null;
   private lastSource: string | null = null;
   private runtimeCache: RuntimeCache | null = null;
+  /** Last real compile outcome for a source; cleared with the same rules as runtimeCache. */
+  private compileMemory: CompileMemory | null = null;
   /** Normalized texts this bridge pasted (bounded); kept across openChart on purpose. */
   private knownTexts: readonly string[] = [];
   private readonly layoutOps: LayoutOps;
@@ -139,6 +141,7 @@ export class TvDriver implements DriverApi {
     const url = await navigateToChart(this.page, args);
     this.ownedEntityId = null; // a reload drops unsaved chart contents
     this.runtimeCache = null;
+    this.compileMemory = null;
     this.lastSource = null; // the reloaded editor may hold a different script
     return { url };
   }
@@ -172,6 +175,7 @@ export class TvDriver implements DriverApi {
     }
     this.lastSource = source;
     this.runtimeCache = cacheForSource(this.runtimeCache, source);
+    this.compileMemory = memoryForSource(this.compileMemory, source);
     return { length: source.length };
   }
 
@@ -197,15 +201,18 @@ export class TvDriver implements DriverApi {
       runtimeChecked: report.runtimeChecked,
     });
     this.runtimeCache = next;
+    const outcome = resolveCompiled(this.compileMemory, source, report);
+    this.compileMemory = outcome.next;
     return {
-      compiled: deriveCompiled(report),
+      compiled: outcome.result.compiled,
       action: report.action,
-      errors: report.errors,
+      errors: outcome.result.errors,
       warnings: report.warnings,
       runtimeError: view.runtimeError,
       runtimeChecked: view.runtimeChecked,
       cleanedErrorRows: report.cleanedErrorRows,
       unchanged: report.unchanged,
+      ...(outcome.result.unknownState ? { unknownState: true as const } : {}),
       elapsedMs: report.elapsedMs,
     };
   }
@@ -254,6 +261,7 @@ export class TvDriver implements DriverApi {
     // The owned id is kept through the reload: compileImpl() keeps it only if that row is still on the
     // chart under a script name, otherwise it claims only a fresh row or nothing (fail safe).
     this.runtimeCache = null;
+    this.compileMemory = null;
     try {
       await this.overlay();
       await this.assertScratch(RECOVERY_NOT_SCRATCH_MESSAGE); // the reloaded editor may hold a different script
@@ -277,6 +285,7 @@ export class TvDriver implements DriverApi {
     const result = await removeLegendRow(this.page, this.ownedEntityId);
     this.ownedEntityId = null;
     this.runtimeCache = null;
+    this.compileMemory = null;
     return result;
   }
 

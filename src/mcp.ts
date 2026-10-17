@@ -40,7 +40,10 @@ const COMPILE_DESCRIPTION =
   "reads the owned row's status again (once it is not loading, bounded 10 s) and returns it with " +
   'runtimeChecked=true. Without an owned row, or when the row does not settle, the previously read ' +
   'runtimeError (if any) is returned with runtimeChecked=false. runtimeChecked=false means the runtime status was NOT read, ' +
-  'not that the script is clean. cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
+  'not that the script is clean. With unchanged=true, compiled reflects the last compile of that exact ' +
+  'source in this session: after a failed compile it stays compiled=false and the cached errors are returned. ' +
+  'With no remembered compile, compiled=true only when the owned row is on the chart; otherwise ' +
+  'compiled=false and unknownState=true (state unknown: change the source or ask the owner). cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
   'the bridge removed after a failed compile. ' +
   'warnings are best effort and unverified (their console format has never been observed live): an empty ' +
   'warnings list does not prove there were none.';

@@ -24,21 +24,18 @@ describe('freshEntries', () => {
   });
 });
 
+// The unchanged case (formerly always true here) is now resolved by resolveCompiled; see compileMemory.test.ts.
 describe('deriveCompiled', () => {
-  it('is true for an unchanged source even without an action', () => {
-    expect(deriveCompiled({ unchanged: true, errors: [], action: null })).toBe(true);
-  });
-
   it('is true for an error-free compile with an action', () => {
-    expect(deriveCompiled({ unchanged: false, errors: [], action: 'added' })).toBe(true);
-    expect(deriveCompiled({ unchanged: false, errors: [], action: 'updated' })).toBe(true);
+    expect(deriveCompiled({ errors: [], action: 'added' })).toBe(true);
+    expect(deriveCompiled({ errors: [], action: 'updated' })).toBe(true);
   });
 
   it('is false when errors exist, even with an action', () => {
-    expect(deriveCompiled({ unchanged: false, errors: [error], action: 'updated' })).toBe(false);
+    expect(deriveCompiled({ errors: [error], action: 'updated' })).toBe(false);
   });
 
-  it('is false without an action and without unchanged', () => {
-    expect(deriveCompiled({ unchanged: false, errors: [], action: null })).toBe(false);
+  it('is false without an action', () => {
+    expect(deriveCompiled({ errors: [], action: null })).toBe(false);
   });
 });
