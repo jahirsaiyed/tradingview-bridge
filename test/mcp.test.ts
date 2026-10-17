@@ -147,6 +147,8 @@ describe('MCP tools', () => {
     const compile = describe('tv_compile');
     expect(compile).toMatch(/point-in-time/);
     expect(compile).toMatch(/raise its error later/);
+    expect(compile).toMatch(/reads the owned row's status again/);
+    expect(compile).not.toMatch(/cached result\)/);
     expect(describe('tv_status')).toContain('sessionDisconnected');
   });
 

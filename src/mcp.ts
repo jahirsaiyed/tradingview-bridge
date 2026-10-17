@@ -31,12 +31,15 @@ const PINE_LOGS_DESCRIPTION =
 const COMPILE_DESCRIPTION =
   'Compile and add/update the script on the chart. Returns compile errors (line/column/code), warnings, ' +
   'and any runtime error detected after the script settles. compiled=false means errors. ' +
-  'runtimeChecked=true is a point-in-time read: the owned legend row stopped calculating and its status ' +
-  'stayed unchanged for 0.7 s (1.5 s when no badge is shown). A script can still raise its error later ' +
-  '(e.g. on a new bar); call tv_compile again (it returns unchanged plus the cached result) or read Pine logs. ' +
+  'runtimeChecked=true is a point-in-time read: the owned legend row stopped calculating (its data-status ' +
+  'attribute is no longer "loading") and its status stayed unchanged for 0.7 s (1.5 s when no badge is shown; ' +
+  'an empty status counts only after the row was seen calculating or 2.5 s after the compile). A script can ' +
+  'still raise its error later (e.g. on a new bar): call tv_compile again or read Pine logs. ' +
   'If the row does not stop calculating within 10 s, runtimeChecked=false and a badge already shown is still returned. ' +
-  'unchanged=true means the source already matched the chart, so recompiling is a no-op: the previous ' +
-  'runtimeError is returned with runtimeChecked:false. runtimeChecked=false means the runtime status was NOT read, ' +
+  'unchanged=true means the source already matched the chart, so nothing is recompiled; the bridge then ' +
+  "reads the owned row's status again (once it is not loading, bounded 10 s) and returns it with " +
+  'runtimeChecked=true. Without an owned row, or when the row does not settle, the previously read ' +
+  'runtimeError (if any) is returned with runtimeChecked=false. runtimeChecked=false means the runtime status was NOT read, ' +
   'not that the script is clean. cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
   'the bridge removed after a failed compile. ' +
   'warnings are best effort and unverified (their console format has never been observed live): an empty ' +

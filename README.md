@@ -53,15 +53,21 @@ pristine: use `overwriteExisting: true` after confirming with the owner.
 - `warnings`: compiler warnings. Best effort, unverified: the `Warning at L:C` console format has never been
   observed live, so an empty `warnings` list does not prove there were none.
 - `runtimeError`: a runtime error detected after the script settles on the chart.
-- `unchanged`: `true` when the source already matches the chart. Recompiling identical source is a no-op:
-  the previous `runtimeError` is returned with `runtimeChecked: false`.
+- `unchanged`: `true` when the source already matches the chart, so nothing is recompiled. The bridge then
+  reads the status of the legend row it owns again (after waiting, up to 10 s, until the row is not
+  calculating) and returns it with `runtimeChecked: true`, so a runtime error raised since the last call
+  shows up. Without an owned row (or when the row does not settle) the previously read `runtimeError` is
+  returned with `runtimeChecked: false`.
 - `runtimeChecked`: `false` means the runtime status was NOT read. It does not mean the script is clean.
   `true` is a point-in-time read: after the compile the bridge waits (up to 10 s) until the script's legend row
-  stops calculating (TradingView sets `data-status="loading"` on it) and its status badge stays unchanged for
-  0.7 s (1.5 s when no badge is shown), then reads it. A slow script may still raise its error later (for
-  example on a new bar): call `tv_compile` again (it returns `unchanged` plus the cached result) or read Pine
-  logs. If the row does not stop calculating within 10 s, `runtimeChecked` is `false`; a runtime error badge
-  that is already shown is still returned in `runtimeError`.
+  stops calculating and its status badge stays unchanged for 0.7 s (1.5 s when no badge is shown; an empty
+  status counts only once the row was seen calculating or 2.5 s after the compile), then reads it. A slow
+  script may still raise its error later (for example on a new bar): call `tv_compile` again (an unchanged
+  source re-reads the owned row's status, see above) or read Pine logs. If the row does not stop calculating
+  within 10 s, `runtimeChecked` is `false`; a runtime error badge that is already shown is still returned in
+  `runtimeError`. The readiness signal is TradingView's `data-status="loading"` attribute on the legend row
+  (live-verified 2026-10-17); if TradingView drops it, the bridge falls back to the quiet windows and the
+  2.5 s rule.
 - `cleanedErrorRows`: number of junk "Compilation error" legend rows the bridge removed after a failed compile.
 
 ### `tv_read_pine_logs`
@@ -81,9 +87,13 @@ virtualized, so only rendered rows can be read: `tradesTotal` is the closed-trad
 
 The result also names the report: `strategyName` is the strategy the Strategy Tester shows (its footer tab;
 TradingView shows the short title when one is declared) and `matchesOwnedScript` is `true`/`false` when both
-that name and the script the bridge set are known (`null` otherwise). When the Strategy Tester shows another
+that name and the script the bridge set are known (`null` otherwise). The names are compared for equality
+after normalizing spaces and case (a name shown truncated with an ellipsis matches a script name starting with
+the shown text); the footer shows no inputs, so "Name v2" does not match "Name". When the Strategy Tester shows another
 strategy (for example one of the owner's), the call fails with `FOREIGN_REPORT` and returns no numbers.
-Key stats are read only from the report's Key stats block. Before reading, the bridge waits (up to 15 s) until
+Key stats are read only from the report's Key stats block; trades only from the report container (if the Key
+stats block is shown but that container is not found, the call fails with `SELECTOR_MISSING` instead of
+returning no trades). Before reading, the bridge waits (up to 15 s) until
 its own strategy's legend row stops recalculating, then requires two identical key-stats reads 0.7 s apart.
 TradingView updates the numbers while the row is still calculating, so stats right after a recompile are
 best-effort until the numbers stop changing; key stats that keep changing for 15 s fail with `TIMEOUT_REPORT`
@@ -122,7 +132,9 @@ and use `log.info` + `tv_read_pine_logs` instead).
 
 TradingView allows one active session per account. When the account is opened on another browser or device,
 the dedicated Chrome shows a full-page "Session disconnected" modal and nothing else works. The bridge detects
-it (page text "Session disconnected" plus "accessed from another browser or device"): `tv_status` returns
+it (page text "Session disconnected" plus "accessed from another browser or device"; the Pine Editor, Pine
+logs, Strategy Tester and chart legends are not checked, so a script or log line quoting these words does not
+trigger it): `tv_status` returns
 `sessionDisconnected: true` and every other tool fails with `SESSION_DISCONNECTED`. To continue, click Connect
 in the dedicated Chrome window yourself; this ends the other session. The bridge never clicks it.
 

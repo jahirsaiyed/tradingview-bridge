@@ -48,6 +48,16 @@ async function concurrencyCheck(driver: TvDriver): Promise<void> {
   check(sourcesEqual(after, SOURCES.valid) && !after.includes('__tv_bridge_sentinel__'), 'editor text unchanged by parallel calls');
 }
 
+// Editor text quoting the modal's words must not trip the session guard (it would block every tool).
+async function sessionTextCheck(driver: TvDriver): Promise<void> {
+  const quoting = `${SOURCES.valid}// Session disconnected: your account was accessed from another browser or device.
+`;
+  await driver.setScript(quoting);
+  check((await driver.status()).sessionDisconnected === false, 'editor text with the modal phrases is not a disconnect');
+  check((await driver.getScript()).source.includes('Session disconnected'), 'tools still work with that editor text');
+  await driver.setScript(SOURCES.valid);
+}
+
 export const state: { owned: string | null } = { owned: null };
 
 export function check(condition: boolean, message: string): void {
@@ -216,10 +226,12 @@ const sections: Record<string, Section> = {
       await scratchGuardCheck(page, driver);
       check((await driver.getScript()).source.includes('TV Bridge Smoke'), 'set/get script round trip');
       await concurrencyCheck(driver);
+      await sessionTextCheck(driver);
       const compiled = await driver.compile();
       check(compiled.compiled && !compiled.runtimeError.present, `compile ok (${compiled.action ?? 'unchanged'})`);
       const again = await driver.compile();
       check(again.unchanged && again.compiled, 'second compile of the same source is unchanged and compiled');
+      check(again.runtimeChecked && !again.runtimeError.present, 'unchanged compile re-read the owned row status');
 
       await driver.setScript(SOURCES.runtimeError);
       const runtime = await driver.compile();
