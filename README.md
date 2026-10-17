@@ -50,6 +50,10 @@ and use `log.info` + `tv_read_pine_logs` instead).
 
 - The CDP endpoint must be loopback (`TV_CDP_ENDPOINT`, default `http://127.0.0.1:9222`).
 - The bridge never touches alerts, orders or watchlists, and only removes the script it added itself.
+- It only drives an `https://*.tradingview.com/chart` tab; any other page is refused (`NO_CHART`).
+- Editor reads and writes go through the clipboard: the bridge temporarily uses it and restores the previous
+  text content afterwards (images or files on the clipboard are not preserved), then clears the clipboard
+  permissions it granted.
 - Review TradingView's terms on automated access before relying on this.
 
 ## Development

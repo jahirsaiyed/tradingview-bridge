@@ -2,6 +2,7 @@ import type { Page } from 'playwright-core';
 import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { withBeforeUnloadAccept } from './dialogs.js';
+import { assertTradingViewChartUrl } from './chartUrl.js';
 import { parseChartLabel, type ChartLabel } from '../parsers/chart.js';
 
 export async function readChartLabel(page: Page): Promise<ChartLabel | null> {
@@ -29,6 +30,7 @@ export async function navigateToChart(
   if (!args.symbol && !args.interval) {
     throw new TvError('INVALID_ARGUMENT', 'Provide a symbol, an interval, or both');
   }
+  assertTradingViewChartUrl(page.url());
   const url = new URL(page.url());
   if (args.symbol) url.searchParams.set('symbol', args.symbol);
   if (args.interval) url.searchParams.set('interval', args.interval);

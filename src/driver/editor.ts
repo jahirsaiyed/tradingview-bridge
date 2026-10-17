@@ -2,6 +2,7 @@ import type { Page } from 'playwright-core';
 import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { sourcesEqual } from '../parsers/source.js';
+import { withClipboardAccess } from './clipboard.js';
 import {
   parseConsoleEntries,
   parseProblemCodes,
@@ -15,18 +16,15 @@ async function focusEditor(page: Page): Promise<void> {
   await page.locator(SURFACE).first().click();
 }
 
-export async function pasteSource(page: Page, source: string): Promise<void> {
-  const origin = new URL(page.url()).origin;
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+// The *Raw helpers assume clipboard access is already granted by withClipboardAccess.
+async function pasteRaw(page: Page, source: string): Promise<void> {
   await focusEditor(page);
   await page.evaluate((text) => navigator.clipboard.writeText(text), source);
   await page.keyboard.press('Control+A');
   await page.keyboard.press('Control+V');
 }
 
-export async function copySource(page: Page): Promise<string> {
-  const origin = new URL(page.url()).origin;
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+async function copyRaw(page: Page): Promise<string> {
   const sentinel = `__tv_bridge_sentinel__${Date.now()}`;
   await page.evaluate((text) => navigator.clipboard.writeText(text), sentinel);
   await focusEditor(page);
@@ -39,9 +37,20 @@ export async function copySource(page: Page): Promise<string> {
   return copied;
 }
 
+export async function pasteSource(page: Page, source: string): Promise<void> {
+  await withClipboardAccess(page, () => pasteRaw(page, source));
+}
+
+export async function copySource(page: Page): Promise<string> {
+  return withClipboardAccess(page, () => copyRaw(page));
+}
+
 export async function writeAndVerify(page: Page, source: string): Promise<void> {
-  await pasteSource(page, source);
-  const actual = await copySource(page);
+  // One clipboard grant/restore/clear around both the paste and the read-back.
+  const actual = await withClipboardAccess(page, async () => {
+    await pasteRaw(page, source);
+    return copyRaw(page);
+  });
   if (!sourcesEqual(source, actual)) {
     throw new TvError('PASTE_MISMATCH', 'Editor content differs from the source that was pasted', {
       expectedLength: source.length,

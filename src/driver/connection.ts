@@ -1,6 +1,7 @@
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { resolveCdpEndpoint } from '../config.js';
 import { TvError } from '../result.js';
+import { isTradingViewChartUrl } from './chartUrl.js';
 
 export interface Connection {
   readonly browser: Browser;
@@ -21,7 +22,7 @@ export async function connect(endpoint: string = resolveCdpEndpoint()): Promise<
   const page = browser
     .contexts()
     .flatMap((context) => context.pages())
-    .find((candidate) => candidate.url().includes('tradingview.com/chart'));
+    .find((candidate) => isTradingViewChartUrl(candidate.url()));
   if (!page) {
     throw new TvError('NO_CHART', 'No TradingView chart tab is open in the dedicated Chrome', { endpoint });
   }
