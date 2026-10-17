@@ -84,7 +84,14 @@ export async function removeLegendRow(
     // With the Strategy Tester open, TradingView hides the newest rows under a "+N" counter.
     if (!(await isRowVisible(row))) {
       collapsedPanel = await collapseBottomPanel(page);
-      await pollUntil(() => isRowVisible(row), { timeoutMs: ROW_VISIBLE_TIMEOUT_MS, intervalMs: 200 });
+      const visible = await pollUntil(() => isRowVisible(row), { timeoutMs: ROW_VISIBLE_TIMEOUT_MS, intervalMs: 200 });
+      if (!visible) {
+        throw new TvError(
+          'REMOVE_FAILED',
+          `The legend row did not become visible within ${ROW_VISIBLE_TIMEOUT_MS} ms, so it could not be removed`,
+          { entityId },
+        );
+      }
     }
     // The row's action buttons only receive pointer events while the row is hovered.
     await row.locator(SEL.legendTitle).first().hover({ timeout: 5000 });

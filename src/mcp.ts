@@ -34,7 +34,29 @@ const COMPILE_DESCRIPTION =
   'unchanged=true means the source already matched the chart, so recompiling is a no-op: the previous ' +
   'runtimeError is returned with runtimeChecked:false. runtimeChecked=false means the runtime status was NOT read, ' +
   'not that the script is clean. cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
-  'the bridge removed after a failed compile.';
+  'the bridge removed after a failed compile. ' +
+  'warnings are best effort and unverified (their console format has never been observed live): an empty ' +
+  'warnings list does not prove there were none.';
+
+const SET_SCRIPT_DESCRIPTION =
+  'REPLACES the Pine Editor contents with the given source (clipboard paste, verified by read-back). ' +
+  'Refuses with EDITOR_NOT_SCRATCH to overwrite a script the bridge did not write in this session (only an ' +
+  'empty editor, text the bridge pasted, or the new-script template are replaced) unless overwriteExisting ' +
+  'is true. Set overwriteExisting only after the owner confirms the current script may be replaced; ' +
+  'otherwise ask the owner to open a scratch script.';
+
+const STRATEGY_STATS_DESCRIPTION =
+  'Read Strategy Tester key stats (Total PnL, Max drawdown, Profitable trades, Profit factor) and optionally ' +
+  'the most recent trades. The trade list is virtualized: only rendered rows can be read; tradesTotal is the ' +
+  'closed-trade count and tradesTruncated=true means fewer trades were returned than min(tradeLimit, tradesTotal). ' +
+  'If the report does not render (e.g. zero trades, or a stalled Strategy Tester) the call fails with ' +
+  'TIMEOUT_REPORT. allowReload: true (default false) then reloads the page, which drops unsaved chart state ' +
+  'and can take up to a minute, re-applies the script and retries once. Re-check tuned inputs on a different ' +
+  'symbol or date range before trusting them.';
+
+const SELFTEST_DESCRIPTION =
+  'Check that the selectors this bridge depends on still resolve in the current TradingView UI. If the ' +
+  'overlay editor cannot be opened, layoutError says why and the selectors are still checked.';
 
 function registerSessionTools(server: McpServer, getDriver: GetDriver): void {
   server.tool(
@@ -59,7 +81,7 @@ function registerSessionTools(server: McpServer, getDriver: GetDriver): void {
 
   server.tool(
     'tv_selftest',
-    'Check that the selectors this bridge depends on still resolve in the current TradingView UI.',
+    SELFTEST_DESCRIPTION,
     {},
     () => runTool(getDriver, (d) => d.selftest()),
   );
@@ -68,9 +90,15 @@ function registerSessionTools(server: McpServer, getDriver: GetDriver): void {
 function registerScriptTools(server: McpServer, getDriver: GetDriver): void {
   server.tool(
     'tv_set_script',
-    'REPLACES the Pine Editor contents with the given source (clipboard paste, verified by read-back). Open a scratch script first.',
-    { source: z.string().min(1).max(200_000) },
-    (args) => runTool(getDriver, (d) => d.setScript(args.source)),
+    SET_SCRIPT_DESCRIPTION,
+    {
+      source: z.string().min(1).max(200_000),
+      overwriteExisting: z
+        .boolean()
+        .optional()
+        .describe('Replace a script the bridge did not write. Use only after the owner confirms.'),
+    },
+    (args) => runTool(getDriver, (d) => d.setScript(args.source, { overwriteExisting: args.overwriteExisting })),
   );
 
   server.tool('tv_get_script', 'Read the current Pine Editor source.', {}, () =>
@@ -106,10 +134,14 @@ function registerReadTools(server: McpServer, getDriver: GetDriver): void {
 
   server.tool(
     'tv_read_strategy_stats',
-    'Read Strategy Tester key stats (Total PnL, Max drawdown, Profitable trades, Profit factor) and optionally the most recent trades. Re-check tuned inputs on a different symbol or date range before trusting them.',
+    STRATEGY_STATS_DESCRIPTION,
     {
       includeTrades: z.boolean().default(false),
       tradeLimit: z.number().int().min(1).max(500).default(50),
+      allowReload: z
+        .boolean()
+        .default(false)
+        .describe('On TIMEOUT_REPORT, reload the page (drops unsaved chart state) and retry once.'),
     },
     (args) => runTool(getDriver, (d) => d.readStrategyStats(args)),
   );

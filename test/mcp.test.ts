@@ -89,6 +89,50 @@ describe('MCP tools', () => {
     expect(JSON.parse(textOf(result))).toEqual({ ok: true, length: 3 });
   });
 
+  it('passes overwriteExisting from tv_set_script to the driver', async () => {
+    const seen: unknown[] = [];
+    const client = await connectClient(
+      fakeDriver({
+        setScript: async (source, options) => {
+          seen.push(options);
+          return { length: source.length };
+        },
+      }),
+    );
+    await client.callTool({ name: 'tv_set_script', arguments: { source: 'abc', overwriteExisting: true } });
+    await client.callTool({ name: 'tv_set_script', arguments: { source: 'abc' } });
+    expect(seen[0]).toEqual({ overwriteExisting: true });
+    expect((seen[1] as { overwriteExisting?: boolean } | undefined)?.overwriteExisting).toBeUndefined();
+  });
+
+  it('passes allowReload (default false) from tv_read_strategy_stats to the driver', async () => {
+    const seen: unknown[] = [];
+    const client = await connectClient(
+      fakeDriver({
+        readStrategyStats: async (args) => {
+          seen.push(args);
+          return { keyStats: { totalPnl: null, maxDrawdown: null, profitableTrades: null, profitFactor: null } };
+        },
+      }),
+    );
+    await client.callTool({ name: 'tv_read_strategy_stats', arguments: {} });
+    await client.callTool({ name: 'tv_read_strategy_stats', arguments: { allowReload: true, includeTrades: true } });
+    expect(seen[0]).toEqual({ includeTrades: false, tradeLimit: 50, allowReload: false });
+    expect(seen[1]).toEqual({ includeTrades: true, tradeLimit: 50, allowReload: true });
+  });
+
+  it('documents the scratch guard, the reload option, truncation and unverified warnings', async () => {
+    const client = await connectClient(fakeDriver());
+    const { tools } = await client.listTools();
+    const describe = (name: string) => tools.find((t) => t.name === name)!.description!;
+    expect(describe('tv_set_script')).toContain('overwriteExisting');
+    expect(describe('tv_set_script')).toMatch(/owner confirms/);
+    const stats = describe('tv_read_strategy_stats');
+    for (const word of ['allowReload', 'unsaved chart state', 'tradesTruncated', 'rendered']) expect(stats).toContain(word);
+    expect(describe('tv_compile')).toMatch(/unverified/);
+    expect(describe('tv_selftest')).toContain('layoutError');
+  });
+
   it('converts a TvError into a failure result', async () => {
     const client = await connectClient(
       fakeDriver({

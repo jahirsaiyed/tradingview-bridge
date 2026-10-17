@@ -3,6 +3,7 @@ import { TvError } from '../result.js';
 import { analyzeCompile, type CompileOutcome, type CompileProblem } from '../parsers/console.js';
 import { parseRuntimeStatus, type RuntimeError } from '../parsers/runtime.js';
 import { readConsole, triggerCompile } from './editor.js';
+import { freshEntries } from './compileState.js';
 import { findNewCompileErrorRows } from './errorRows.js';
 import { listLegendRows, readStatusTitle, removeLegendRow } from './legend.js';
 import { pickOwnedEntity, retainPresentOwned, type LegendRow } from './ownership.js';
@@ -50,9 +51,7 @@ async function waitForOutcome(page: Page, baseline: number, timeoutMs: number): 
   const outcome = await pollUntil(
     async () => {
       const { entries, problems } = await readConsole(page);
-      // If the console was cleared (fewer entries than the baseline), treat all entries as new.
-      const fresh = entries.length >= baseline ? entries.slice(baseline) : entries;
-      const analysed = analyzeCompile(fresh, problems);
+      const analysed = analyzeCompile(freshEntries(entries, baseline), problems);
       return analysed.finished ? analysed : null;
     },
     { timeoutMs, intervalMs: 300 },
