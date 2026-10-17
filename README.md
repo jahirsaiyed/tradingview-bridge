@@ -76,6 +76,13 @@ pristine: use `overwriteExisting: true` after confirming with the owner.
   2.5 s rule.
 - `cleanedErrorRows`: number of junk "Compilation error" legend rows the bridge removed after a failed compile.
 
+Console pane: compile results are read from the overlay editor's console pane. On a fresh TradingView layout
+that pane is collapsed (only a small `>_` button at the bottom-left of the editor). Before reading it the bridge
+opens it with one click on that button, waits (up to 3 s) until it is open, and leaves it open afterwards
+(every compile needs it). It never clicks the button while the pane is already open or opening. If the button
+is missing or the pane does not open, `tv_compile` fails with `SELECTOR_MISSING` (`details.selector`,
+`details.reason`: `missing` or `not-opened`) telling the owner to open the console pane, instead of timing out.
+
 Time budget: the whole `tv_compile` call (editor layout, compile, finding and settling the owned row, including
 re-picks) shares one 45 s budget; each wait uses at most the time left. Once the budget is used up the call fails
 with `TIMEOUT_COMPILE` (`details.reason: "deadline"`, `details.phase`: `outcome`, `error-rows`, `owned-row`,
@@ -133,7 +140,10 @@ so such a call can take several minutes in the worst case and may outlast a 60 s
 ### `tv_selftest`
 
 Checks the selectors the bridge depends on. If the overlay editor cannot be opened, the result carries
-`layoutError` and the selectors are still checked (required ones then appear in `failures`).
+`layoutError` and the selectors are still checked (required ones then appear in `failures`). `console` is the
+state of the editor's console pane (`open`, `collapsed` or `missing`); the selftest only reports it, a
+collapsed pane is opened by `tv_compile` itself. The required `consolePane` check fails when neither the pane
+nor its toggle exists.
 
 ### `tv_open_chart`
 
@@ -183,5 +193,13 @@ in the dedicated Chrome window yourself; this ends the other session. The bridge
 
 `npm test` (unit), `npm run test:coverage`, `npm run typecheck`.
 Live smoke (needs the logged-in Chrome and a scratch editor):
-`set TV_SMOKE_OVERWRITE_EDITOR=1` then `npm run smoke -- all` or `npm run smoke -- driver`.
+`set TV_SMOKE_OVERWRITE_EDITOR=1` then `npm run smoke -- all` or `npm run smoke -- driver` (several sections
+can run in one process: `npm run smoke -- compile remove`). The `all` run records the legend rows (entity id and
+title) at the start and checks at the end that exactly the same rows are present, so it works on any layout,
+including the bare default chart: no smoke row left, no other row removed, no row's script replaced.
+The editor must hold a scratch script that is not already on the chart: TradingView applies a compile to the
+row the editor's script is linked to ("Update on chart"), even a row the bridge did not add.
+Only one process may drive the dedicated Chrome at a time: the driver serializes calls within its own process
+only, so a smoke run next to an MCP server (or another tool using the bridge) interleaves editor and clipboard
+actions.
 Spike evidence and UI findings: `spike/FINDINGS.md` (the probe scripts were removed; see git history).
