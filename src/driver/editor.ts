@@ -27,10 +27,16 @@ export async function pasteSource(page: Page, source: string): Promise<void> {
 export async function copySource(page: Page): Promise<string> {
   const origin = new URL(page.url()).origin;
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  const sentinel = `__tv_bridge_sentinel__${Date.now()}`;
+  await page.evaluate((text) => navigator.clipboard.writeText(text), sentinel);
   await focusEditor(page);
   await page.keyboard.press('Control+A');
   await page.keyboard.press('Control+C');
-  return page.evaluate(() => navigator.clipboard.readText());
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  if (copied === sentinel) {
+    throw new TvError('PASTE_MISMATCH', 'Could not read the editor contents (copy produced no text)');
+  }
+  return copied;
 }
 
 export async function writeAndVerify(page: Page, source: string): Promise<void> {

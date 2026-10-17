@@ -12,8 +12,25 @@ export interface CompileReport {
   readonly errors: readonly CompileProblem[];
   readonly warnings: readonly CompileProblem[];
   readonly runtimeError: RuntimeError;
+  /** True when an owned legend row was found and its status was read. */
+  readonly runtimeChecked: boolean;
   readonly ownedEntityId: string | null;
   readonly elapsedMs: number;
+}
+
+const STATUS_READS = 3;
+const STATUS_INTERVAL_MS = 500;
+
+async function readStableStatus(page: Page, entityId: string): Promise<string | null> {
+  let last = await readStatusTitle(page, entityId);
+  for (let i = 1; i < STATUS_READS; i += 1) {
+    await realSleep(STATUS_INTERVAL_MS);
+    const next = await readStatusTitle(page, entityId);
+    const stable = next === last;
+    last = next;
+    if (stable) break;
+  }
+  return last;
 }
 
 export interface CompileArgs {
@@ -55,6 +72,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
       errors: outcome.errors,
       warnings: outcome.warnings,
       runtimeError: { present: false },
+      runtimeChecked: false,
       ownedEntityId: args.previousOwned,
       elapsedMs: Date.now() - startedAt,
     };
@@ -67,12 +85,13 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
     previousOwned: args.previousOwned,
     action: outcome.action,
   });
-  const statusTitle = owned ? await readStatusTitle(page, owned) : null;
+  const statusTitle = owned ? await readStableStatus(page, owned) : null;
   return {
     action: outcome.action,
     errors: [],
     warnings: outcome.warnings,
     runtimeError: parseRuntimeStatus(statusTitle),
+    runtimeChecked: owned !== null,
     ownedEntityId: owned,
     elapsedMs: Date.now() - startedAt,
   };

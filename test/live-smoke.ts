@@ -48,6 +48,7 @@ const sections: Record<string, Section> = {
     await writeAndVerify(page, SOURCES.valid);
     const good = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
     check(good.errors.length === 0 && good.action !== null, `valid source compiles (${good.action})`);
+    check(good.runtimeChecked === true, 'valid source legend status was read');
     check(!good.runtimeError.present, 'valid source has no runtime error');
     state.owned = good.ownedEntityId;
     check(state.owned !== null, 'bridge owns the legend row it added');
@@ -55,6 +56,7 @@ const sections: Record<string, Section> = {
     await writeAndVerify(page, SOURCES.runtimeError);
     const runtime = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
     check(runtime.errors.length === 0, 'runtime-error source compiles');
+    check(runtime.runtimeChecked === true, 'runtime-error source legend status was read');
     check(
       runtime.runtimeError.present && /^RE\d+$/.test(runtime.runtimeError.code ?? ''),
       `runtime error detected (${runtime.runtimeError.code})`,
