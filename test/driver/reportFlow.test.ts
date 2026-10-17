@@ -133,6 +133,135 @@ describe('collectReport with a shared deadline', () => {
   });
 });
 
+/** Instant fakes that record the call order; `name` is what the Strategy Tester footer shows. */
+function recordingSteps(calls: string[], name: string | null, overrides: Partial<ReportSteps> = {}): ReportSteps {
+  return {
+    settleRow: async () => void calls.push('settle'),
+    readKeyStats: async () => {
+      calls.push('keyStats');
+      return KEY_STATS;
+    },
+    readStrategyName: async () => {
+      calls.push('name');
+      return name;
+    },
+    readTrades: async () => {
+      calls.push('trades');
+      return { trades: [TRADE], unparsed: 0 };
+    },
+    ...overrides,
+  };
+}
+
+const plenty = () => createDeadline(DEADLINE_MS);
+
+describe('collectReport never reads a foreign strategy', () => {
+  it('throws FOREIGN_REPORT on a name mismatch and never calls the trades reader', async () => {
+    const calls: string[] = [];
+    const error = await caught(collectReport(recordingSteps(calls, "Owner's Strategy"), REQUEST, plenty()));
+    expect(error.code).toBe('FOREIGN_REPORT');
+    expect(error.details).toMatchObject({ strategyName: "Owner's Strategy", ownedScriptNames: NAMES });
+    expect(calls).toEqual(['settle', 'keyStats', 'name']);
+    expect(calls).not.toContain('trades');
+  });
+
+  it('returns key stats plus trades when the shown name matches the owned script', async () => {
+    const calls: string[] = [];
+    const payload = await collectReport(recordingSteps(calls, 'TV Bridge Smoke'), REQUEST, plenty());
+    expect(payload).toEqual({
+      keyStats: KEY_STATS,
+      trades: [TRADE],
+      unparsedTradeRows: 0,
+      tradesTotal: 2,
+      tradesTruncated: true,
+      strategyName: 'TV Bridge Smoke',
+      matchesOwnedScript: true,
+    });
+    expect(calls).toEqual(['settle', 'keyStats', 'name', 'trades']);
+  });
+
+  it('returns the data with matchesOwnedScript null when the shown name is unknown', async () => {
+    const payload = await collectReport(recordingSteps([], null), REQUEST, plenty());
+    expect(payload).toMatchObject({ keyStats: KEY_STATS, trades: [TRADE], strategyName: null, matchesOwnedScript: null });
+  });
+
+  it('returns the data with matchesOwnedScript null when the owned script names are unknown', async () => {
+    const payload = await collectReport(recordingSteps([], 'Anything'), { ...REQUEST, names: [] }, plenty());
+    expect(payload).toMatchObject({ strategyName: 'Anything', matchesOwnedScript: null });
+  });
+
+  it('skips the trades reader without includeTrades and skips settling without an owned row', async () => {
+    const calls: string[] = [];
+    const steps = recordingSteps(calls, 'TV Bridge Smoke', { settleRow: null });
+    const payload = await collectReport(steps, { ...REQUEST, includeTrades: false }, plenty());
+    expect(payload).toEqual({ keyStats: KEY_STATS, strategyName: 'TV Bridge Smoke', matchesOwnedScript: true });
+    expect(calls).toEqual(['keyStats', 'name']);
+  });
+});
+
+describe('readStatsWithRecovery without a key-facts container (behaves as before)', () => {
+  const notRendered = () => new TvError('TIMEOUT_REPORT', 'did not render within 30000 ms', { timeoutMs: 30_000 });
+
+  function run(steps: ReportSteps, allowReload: boolean, recover: (() => Promise<void>) | null) {
+    return readStatsWithRecovery(
+      { collect: (deadline) => collectReport(steps, REQUEST, deadline), recover, newDeadline: plenty },
+      plenty(),
+      allowReload,
+    );
+  }
+
+  it('fails with TIMEOUT_REPORT and no reload without allowReload; name and trades are never read', async () => {
+    const calls: string[] = [];
+    let recovered = 0;
+    const steps = recordingSteps(calls, 'TV Bridge Smoke', { readKeyStats: async () => Promise.reject(notRendered()) });
+    const error = await caught(run(steps, false, async () => void (recovered += 1)));
+    expect(error.code).toBe('TIMEOUT_REPORT');
+    expect(error.details).toEqual({ timeoutMs: 30_000, reloadAttempted: false });
+    expect(error.message).toContain('allowReload: true');
+    expect(recovered).toBe(0);
+    expect(calls).toEqual(['settle']);
+  });
+
+  it('fails with the no-script explanation when there is no script to re-apply', async () => {
+    const steps = recordingSteps([], 'TV Bridge Smoke', { readKeyStats: async () => Promise.reject(notRendered()) });
+    const error = await caught(run(steps, true, null));
+    expect(error.message).toContain('has not set a script');
+    expect(error.details).toMatchObject({ reloadAttempted: false });
+  });
+
+  it('passes a missing trades container through as SELECTOR_MISSING without a reload', async () => {
+    let recovered = 0;
+    const missing = new TvError('SELECTOR_MISSING', 'trades container not found', { selector: 'x' });
+    const steps = recordingSteps([], 'TV Bridge Smoke', { readTrades: async () => Promise.reject(missing) });
+    const error = await caught(run(steps, true, async () => void (recovered += 1)));
+    expect(error).toBe(missing);
+    expect(recovered).toBe(0);
+  });
+
+  it('never reloads a report that is still recalculating (not-settled)', async () => {
+    let recovered = 0;
+    const busy = new TvError('TIMEOUT_REPORT', 'kept changing', { timeoutMs: 15_000, reason: 'not-settled' });
+    const steps = recordingSteps([], 'TV Bridge Smoke', { readKeyStats: async () => Promise.reject(busy) });
+    expect(await caught(run(steps, true, async () => void (recovered += 1)))).toBe(busy);
+    expect(recovered).toBe(0);
+  });
+
+  it('reloads once with allowReload and a script, then reads again', async () => {
+    let attempts = 0;
+    let recovered = 0;
+    const steps = recordingSteps([], 'TV Bridge Smoke', {
+      readKeyStats: async () => {
+        attempts += 1;
+        if (attempts === 1) throw notRendered();
+        return KEY_STATS;
+      },
+    });
+    const payload = await run(steps, true, async () => void (recovered += 1));
+    expect(payload.matchesOwnedScript).toBe(true);
+    expect(recovered).toBe(1);
+  });
+});
+
 describe('readStatsWithRecovery deadlines', () => {
   it('gives the collect after a reload recovery a fresh deadline', async () => {
     const deadlines: Deadline[] = [];
