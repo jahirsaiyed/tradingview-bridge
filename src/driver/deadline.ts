@@ -39,3 +39,11 @@ export function deadlineError(
     { reason: 'deadline', phase, deadlineMs: deadline.totalMs, ...details },
   );
 }
+
+/**
+ * deadline.cap(phaseMs) for a Playwright `timeout`: never below 1 ms, because a timeout of 0 means NO
+ * timeout in Playwright (a call could then wait forever while holding the driver mutex).
+ */
+export function capMs(deadline: Deadline, phaseMs: number): number {
+  return Math.max(1, deadline.cap(phaseMs));
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveCompiled, freshEntries } from '../../src/driver/compileState.js';
+import { deriveCompiled, freshEntries, routeOutcome } from '../../src/driver/compileState.js';
 
 const entry = (message: string) => ({ time: '1:00:00 PM', message });
 const error = { line: 1, column: 1, message: 'boom' };
@@ -37,5 +37,26 @@ describe('deriveCompiled', () => {
 
   it('is false without an action', () => {
     expect(deriveCompiled({ errors: [], action: null })).toBe(false);
+  });
+});
+
+describe('routeOutcome', () => {
+  const outcome = (parts: Partial<Parameters<typeof routeOutcome>[0]>) => ({
+    errors: [],
+    nothingToUpdate: false,
+    ...parts,
+  });
+
+  it('routes "There is nothing to update." without errors to unchanged', () => {
+    expect(routeOutcome(outcome({ nothingToUpdate: true }))).toBe('unchanged');
+  });
+
+  it('routes errors to failed even when "There is nothing to update." is also present', () => {
+    expect(routeOutcome(outcome({ nothingToUpdate: true, errors: [error] }))).toBe('failed');
+    expect(routeOutcome(outcome({ errors: [error] }))).toBe('failed');
+  });
+
+  it('routes a clean compile to applied', () => {
+    expect(routeOutcome(outcome({}))).toBe('applied');
   });
 });

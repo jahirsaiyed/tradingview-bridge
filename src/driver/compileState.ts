@@ -20,3 +20,17 @@ export interface CompiledInput {
 export function deriveCompiled(report: CompiledInput): boolean {
   return report.errors.length === 0 && report.action !== null;
 }
+
+export interface RoutedOutcome {
+  readonly errors: readonly CompileProblem[];
+  readonly nothingToUpdate: boolean;
+}
+
+/**
+ * What a finished compile outcome means: errors always fail; "There is nothing to update." without errors
+ * (TradingView refused to recompile its last compiled text) is unchanged; anything else was applied.
+ */
+export function routeOutcome(outcome: RoutedOutcome): 'failed' | 'unchanged' | 'applied' {
+  if (outcome.nothingToUpdate && outcome.errors.length === 0) return 'unchanged';
+  return outcome.errors.length > 0 ? 'failed' : 'applied';
+}

@@ -43,17 +43,18 @@ const RESTORE_ATTEMPTS = 5;
 const RESTORE_SETTLE_MS = 400;
 
 // The toggler re-renders right after a row is removed, so check the real state and retry.
-async function recollapseLegend(legend: Locator, toggler: Locator): Promise<void> {
+async function recollapseLegend(legend: Locator, toggler: Locator, actionMs: number): Promise<void> {
   const sources = legend.locator(SEL.legendSources);
   for (let attempt = 0; attempt < RESTORE_ATTEMPTS; attempt += 1) {
     const isClosed = await sources.evaluate((element) => /closed/.test(element.className));
     if (isClosed) return;
-    if (await toggler.isVisible().catch(() => false)) await toggler.click({ timeout: 5000 });
+    if (await toggler.isVisible().catch(() => false)) await toggler.click({ timeout: actionMs });
     await new Promise((resolve) => setTimeout(resolve, RESTORE_SETTLE_MS));
   }
 }
 
-const ROW_VISIBLE_TIMEOUT_MS = 5000;
+/** Default bound of each removal step (click, hover, visibility and disappearance waits). */
+const ACTION_TIMEOUT_MS = 5000;
 
 async function isRowVisible(row: Locator): Promise<boolean> {
   return row.evaluate((element) => {
@@ -62,9 +63,26 @@ async function isRowVisible(row: Locator): Promise<boolean> {
   });
 }
 
+// With the Strategy Tester open, TradingView hides the newest rows under a "+N" counter: collapse the bottom
+// panel until the row is visible. Returns whether it collapsed the panel; on failure it restores the panel itself.
+async function revealRow(page: Page, row: Locator, entityId: string, timeoutMs: number): Promise<boolean> {
+  if (await isRowVisible(row)) return false;
+  const collapsedPanel = await collapseBottomPanel(page);
+  const visible = await pollUntil(() => isRowVisible(row), { timeoutMs, intervalMs: 200 });
+  if (!visible) {
+    if (collapsedPanel) await restoreBottomPanel(page).catch(() => undefined);
+    throw new TvError('REMOVE_FAILED', `The legend row did not become visible within ${timeoutMs} ms, so it could not be removed`, {
+      entityId,
+    });
+  }
+  return collapsedPanel;
+}
+
+/** actionTimeoutMs bounds each step; callers with a deadline pass what is left of it (at least 1 ms). */
 export async function removeLegendRow(
   page: Page,
   entityId: string,
+  actionTimeoutMs: number = ACTION_TIMEOUT_MS,
 ): Promise<{ removed: boolean; reason?: string }> {
   if (!ENTITY_ID.test(entityId)) {
     throw new TvError('INTERNAL', `Unexpected legend entity id: ${entityId}`);
@@ -85,31 +103,21 @@ export async function removeLegendRow(
     .locator(SEL.legendSources)
     .evaluate((element) => /closed/.test(element.className));
   // A collapsed legend is covered by a canvas that blocks pointer events: expand it first.
-  if (wasCollapsed) await toggler.click({ timeout: 5000 });
+  if (wasCollapsed) await toggler.click({ timeout: actionTimeoutMs });
   let collapsedPanel = false;
   try {
-    // With the Strategy Tester open, TradingView hides the newest rows under a "+N" counter.
-    if (!(await isRowVisible(row))) {
-      collapsedPanel = await collapseBottomPanel(page);
-      const visible = await pollUntil(() => isRowVisible(row), { timeoutMs: ROW_VISIBLE_TIMEOUT_MS, intervalMs: 200 });
-      if (!visible) {
-        throw new TvError(
-          'REMOVE_FAILED',
-          `The legend row did not become visible within ${ROW_VISIBLE_TIMEOUT_MS} ms, so it could not be removed`,
-          { entityId },
-        );
-      }
-    }
+    collapsedPanel = await revealRow(page, row, entityId, actionTimeoutMs);
     // The row's action buttons only receive pointer events while the row is hovered.
-    await row.locator(SEL.legendTitle).first().hover({ timeout: 5000 });
-    await row.locator(SEL.legendDelete).click({ timeout: 5000 });
-    const gone = await pollUntil(async () => (await row.count()) === 0, { timeoutMs: 5000, intervalMs: 250 });
+    await row.locator(SEL.legendTitle).first().hover({ timeout: actionTimeoutMs });
+    await row.locator(SEL.legendDelete).click({ timeout: actionTimeoutMs });
+    const gone = await pollUntil(async () => (await row.count()) === 0, { timeoutMs: actionTimeoutMs, intervalMs: 250 });
     if (!gone) {
       throw new TvError('REMOVE_FAILED', 'The legend row was still present after clicking Remove', { entityId });
     }
   } finally {
     // Best effort: never let the restore mask the original error.
-    if (wasCollapsed) await recollapseLegend(legend, toggler).catch(() => undefined);
+    // The restore keeps its full default bound: leaving the legend expanded is worse than a short overrun.
+    if (wasCollapsed) await recollapseLegend(legend, toggler, ACTION_TIMEOUT_MS).catch(() => undefined);
     if (collapsedPanel) await restoreBottomPanel(page).catch(() => undefined);
   }
   return { removed: true };

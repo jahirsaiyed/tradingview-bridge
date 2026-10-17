@@ -1,6 +1,6 @@
 import { TvError } from '../result.js';
 import type { KeyStats, Trade } from '../parsers/strategy.js';
-import { deadlineError, type Deadline } from './deadline.js';
+import { capMs, deadlineError, type Deadline } from './deadline.js';
 import { assertOwnedReport } from './reportIdentity.js';
 import { reportTimeoutError, strategyPayload } from './strategyPayload.js';
 import type { StrategyPayload } from './types.js';
@@ -36,14 +36,14 @@ function outOfTime(phase: string, deadline: Deadline): TvError {
 // A null name after the budget ran out may be a cut-short read: never return numbers with a guessed identity.
 async function readName(steps: ReportSteps, deadline: Deadline): Promise<string | null> {
   if (deadline.expired()) throw outOfTime('strategy-name', deadline);
-  const name = await steps.readStrategyName(deadline.cap(STRATEGY_NAME_TIMEOUT_MS));
+  const name = await steps.readStrategyName(capMs(deadline, STRATEGY_NAME_TIMEOUT_MS));
   if (name === null && deadline.expired()) throw outOfTime('strategy-name', deadline);
   return name;
 }
 
 async function readTradesInTime(steps: ReportSteps, limit: number, deadline: Deadline) {
   if (deadline.expired()) throw outOfTime('trades', deadline);
-  const read = await steps.readTrades(limit, deadline.cap(TRADE_ROWS_TIMEOUT_MS));
+  const read = await steps.readTrades(limit, capMs(deadline, TRADE_ROWS_TIMEOUT_MS));
   // No rows at all once the budget is gone: the wait may have been cut short, so it proves nothing.
   if (read.trades.length === 0 && read.unparsed === 0 && deadline.expired()) throw outOfTime('trades', deadline);
   return read;

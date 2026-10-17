@@ -3,11 +3,17 @@ import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { scriptTitles } from '../parsers/source.js';
 import { COMPILE_DEADLINE_MS, compileAndCollect } from './compile.js';
-import { memoryForSource, ownedAfterCompileError, resolveCompiled, type CompileMemory } from './compileMemory.js';
+import {
+  nextMemory,
+  ownedAfterCompileError,
+  recoveryCompileAccepted,
+  resolveCompiled,
+  type CompileMemory,
+} from './compileMemory.js';
 import { withBeforeUnloadAccept } from './dialogs.js';
 import { copySource, pasteMismatch, writeAndReadBack, writeAndVerify } from './editor.js';
 import { ensureLayout, type LayoutOps } from './layout.js';
-import { removeLegendRow } from './legend.js';
+import { listLegendRows, removeLegendRow } from './legend.js';
 import { createMutex } from './mutex.js';
 import { createPageLayoutOps } from './pageLayoutOps.js';
 import { readPineLogs } from './logsReader.js';
@@ -144,7 +150,7 @@ export class TvDriver implements DriverApi {
     const url = await navigateToChart(this.page, args);
     this.ownedEntityId = null; // a reload drops unsaved chart contents
     this.runtimeCache = null;
-    this.compileMemory = null;
+    this.compileMemory = nextMemory(this.compileMemory, { kind: 'openChart' });
     this.lastSource = null; // the reloaded editor may hold a different script
     return { url };
   }
@@ -178,7 +184,7 @@ export class TvDriver implements DriverApi {
     }
     this.lastSource = source;
     this.runtimeCache = cacheForSource(this.runtimeCache, source);
-    this.compileMemory = memoryForSource(this.compileMemory, source);
+    this.compileMemory = nextMemory(this.compileMemory, { kind: 'setScript' }); // keyed by source, so kept
     return { length: source.length };
   }
 
@@ -193,14 +199,18 @@ export class TvDriver implements DriverApi {
     const deadline = createDeadline(COMPILE_DEADLINE_MS); // one budget for the whole call, overlay included
     await this.overlay();
     const source = this.lastSource ?? (await copySource(this.page));
+    let triggered = false;
     const report = await compileAndCollect(this.page, {
       previousOwned: this.ownedEntityId,
       scriptTitles: scriptTitles(source),
       deadline,
+      onTriggered: () => {
+        triggered = true;
+      },
     }).catch((error: unknown) => {
       // Out of budget after the compile ran: keep owning the row it applied; its outcome is unknown.
       this.ownedEntityId = ownedAfterCompileError(error, this.ownedEntityId);
-      this.compileMemory = null;
+      this.compileMemory = nextMemory(this.compileMemory, { kind: 'compileError', source, triggered });
       throw error;
     });
     this.ownedEntityId = report.ownedEntityId;
@@ -275,13 +285,14 @@ export class TvDriver implements DriverApi {
     // The owned id is kept through the reload: compileImpl() keeps it only if that row is still on the
     // chart under a script name, otherwise it claims only a fresh row or nothing (fail safe).
     this.runtimeCache = null;
-    this.compileMemory = null;
+    this.compileMemory = nextMemory(this.compileMemory, { kind: 'recovery' });
     try {
       await this.overlay();
       await this.assertScratch(RECOVERY_NOT_SCRATCH_MESSAGE); // the reloaded editor may hold a different script
       await writeAndVerify(this.page, source);
       const result = await this.compileImpl(); // never the public compile(): the mutex is held
-      if (!result.compiled) {
+      // An unknown state (unchanged source, row re-created by the reload) passes only with a matching row.
+      if (!recoveryCompileAccepted(result, await listLegendRows(this.page), scriptTitles(source))) {
         throw new TvError('INTERNAL', 'Re-compile after the report stall failed', { errors: result.errors });
       }
     } catch (error) {
@@ -300,7 +311,7 @@ export class TvDriver implements DriverApi {
     const result = await removeLegendRow(this.page, this.ownedEntityId);
     this.ownedEntityId = null;
     this.runtimeCache = null;
-    this.compileMemory = null;
+    this.compileMemory = nextMemory(this.compileMemory, { kind: 'removeScript' });
     return result;
   }
 

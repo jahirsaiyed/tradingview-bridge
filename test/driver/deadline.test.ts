@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createDeadline, deadlineError } from '../../src/driver/deadline.js';
+import { capMs, createDeadline, deadlineError } from '../../src/driver/deadline.js';
 
 function fakeClock(start = 1_000) {
   let t = start;
@@ -58,5 +58,22 @@ describe('deadlineError', () => {
     expect(error.code).toBe('TIMEOUT_REPORT');
     expect(error.message).toContain('tv_read_strategy_stats');
     expect(error.details).toEqual({ reason: 'deadline', phase: 'trades', deadlineMs: 50_000 });
+  });
+});
+
+describe('capMs', () => {
+  it('is the phase cap while time is left', () => {
+    const clock = fakeClock();
+    const deadline = createDeadline(10_000, clock.now);
+    expect(capMs(deadline, 2_000)).toBe(2_000);
+    clock.advance(9_500);
+    expect(capMs(deadline, 2_000)).toBe(500);
+  });
+
+  it('is never 0 (a Playwright timeout of 0 means no timeout at all)', () => {
+    const clock = fakeClock();
+    const deadline = createDeadline(1_000, clock.now);
+    clock.advance(5_000);
+    expect(capMs(deadline, 2_000)).toBe(1);
   });
 });

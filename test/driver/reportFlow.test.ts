@@ -309,3 +309,26 @@ describe('readStatsWithRecovery deadlines', () => {
     expect(recovered).toBe(0);
   });
 });
+
+describe('collectReport never passes a 0 ms timeout (0 means no timeout in Playwright)', () => {
+  // A budget right at its boundary: not expired yet, but nothing left to cap with.
+  const edge: Deadline = { totalMs: DEADLINE_MS, remaining: () => 0, cap: () => 0, expired: () => false };
+
+  it('gives the strategy-name and trades reads at least 1 ms', async () => {
+    const seen: number[] = [];
+    const steps: ReportSteps = {
+      settleRow: null,
+      readKeyStats: async () => KEY_STATS,
+      readStrategyName: async (ms) => {
+        seen.push(ms);
+        return 'TV Bridge Smoke';
+      },
+      readTrades: async (_limit, ms) => {
+        seen.push(ms);
+        return { trades: [TRADE], unparsed: 0 };
+      },
+    };
+    await collectReport(steps, REQUEST, edge);
+    expect(seen).toEqual([1, 1]);
+  });
+});

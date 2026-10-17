@@ -3,15 +3,15 @@ import { TvError } from '../result.js';
 import { analyzeCompile, type CompileOutcome, type CompileProblem } from '../parsers/console.js';
 import { parseRuntimeStatus, type RuntimeError } from '../parsers/runtime.js';
 import { triggerCompile } from './editor.js';
-import { ensureConsoleOpen, readConsole } from './consolePane.js';
-import { freshEntries } from './compileState.js';
+import { ensureConsoleOpen, readConsole, type OpenOptions } from './consolePane.js';
+import { freshEntries, routeOutcome } from './compileState.js';
 import { findNewCompileErrorRows } from './errorRows.js';
 import { listLegendRows, removeLegendRow } from './legend.js';
 import { pickOwnedEntity, retainPresentOwned, type LegendRow } from './ownership.js';
 import { settleOwned } from './ownedSettle.js';
 import { waitForRowSettled, type RowSettleResult } from './rowSettle.js';
 import { DEFAULT_SETTLE_RULE } from './statusSettle.js';
-import { createDeadline, deadlineError, type Deadline } from './deadline.js';
+import { capMs, createDeadline, deadlineError, type Deadline } from './deadline.js';
 import { pollUntil } from './waits.js';
 
 export interface CompileReport {
@@ -22,6 +22,8 @@ export interface CompileReport {
   /** True when an owned legend row was found, stopped calculating and its status was read. */
   readonly runtimeChecked: boolean;
   readonly ownedEntityId: string | null;
+  /** Status title of the owned row when it was read (e.g. "Compilation error: ..."); null when none. */
+  readonly ownedStatus: string | null;
   /** Junk legend rows this compile created (failed compiles) and removed. */
   readonly cleanedErrorRows: number;
   /** True when the source matched the last compiled version, so nothing was compiled. */
@@ -38,6 +40,8 @@ export interface CompileArgs {
   readonly runtimeTimeoutMs?: number;
   /** Shared budget of the whole tool call; a fresh COMPILE_DEADLINE_MS one when absent. */
   readonly deadline?: Deadline;
+  /** Called right before Ctrl+Enter is pressed: from then on a failure leaves the outcome unknown. */
+  readonly onTriggered?: () => void;
 }
 
 const OUTCOME_TIMEOUT_MS = 15_000;
@@ -48,6 +52,14 @@ const RUNTIME_SETTLE_TIMEOUT_MS = 10_000;
  * Once it is used up the call fails with TIMEOUT_COMPILE (details.reason 'deadline', details.phase).
  */
 export const COMPILE_DEADLINE_MS = 45_000;
+/**
+ * Time that must be left before Ctrl+Enter: a compile triggered without time to read its outcome and find its
+ * row would leave a row nobody owns. With less, the call fails with TIMEOUT_COMPILE, phase 'before-trigger'.
+ */
+export const TRIGGER_RESERVE_MS = 20_000;
+/** Upper bound of one Playwright action (click, hover) inside the compile phases. */
+const ACTION_MAX_MS = 5000;
+const CONSOLE_OPEN_MAX_MS = 3000;
 
 type Budgeted = CompileArgs & { readonly deadline: Deadline };
 
@@ -56,19 +68,24 @@ function checkBudget(args: Budgeted, phase: string, known: Record<string, unknow
   if (args.deadline.expired()) throw deadlineError('TIMEOUT_COMPILE', phase, args.deadline, known);
 }
 
+// Opening a collapsed console (one click, a short wait) is capped by the time left as well.
+function consoleOptions(args: Budgeted): OpenOptions {
+  return { timeoutMs: capMs(args.deadline, CONSOLE_OPEN_MAX_MS), clickTimeoutMs: capMs(args.deadline, ACTION_MAX_MS) };
+}
+
 async function waitForOutcome(page: Page, baseline: number, args: Budgeted): Promise<CompileOutcome> {
   const timeoutMs = args.timeoutMs ?? OUTCOME_TIMEOUT_MS;
   checkBudget(args, 'outcome');
   const outcome = await pollUntil(
     async () => {
-      const { entries, problems } = await readConsole(page);
+      const { entries, problems } = await readConsole(page, consoleOptions(args));
       const analysed = analyzeCompile(freshEntries(entries, baseline), problems);
       return analysed.finished ? analysed : null;
     },
     { timeoutMs: args.deadline.cap(timeoutMs), intervalMs: 300 },
   );
   if (!outcome) {
-    const { entries } = await readConsole(page);
+    const { entries } = await readConsole(page, consoleOptions(args));
     const lastConsole = entries.slice(-5).map((entry) => entry.message);
     checkBudget(args, 'outcome', { lastConsole });
     throw new TvError('TIMEOUT_COMPILE', `Compile did not finish within ${timeoutMs} ms`, { lastConsole, phase: 'outcome' });
@@ -80,18 +97,18 @@ const ERROR_ROW_POLL_MS = 4000;
 const ERROR_ROW_INTERVAL_MS = 300;
 
 // A failed compile makes TradingView add a placeholder legend row; remove only rows it just created.
-async function cleanupNewErrorRows(page: Page, rowsBefore: readonly LegendRow[], timeoutMs: number): Promise<number> {
+async function cleanupNewErrorRows(page: Page, rowsBefore: readonly LegendRow[], deadline: Deadline): Promise<number> {
   const found = await pollUntil(
     async () => {
       const ids = findNewCompileErrorRows(rowsBefore, await listLegendRows(page));
       return ids.length > 0 ? ids : null;
     },
-    { timeoutMs, intervalMs: ERROR_ROW_INTERVAL_MS },
+    { timeoutMs: deadline.cap(ERROR_ROW_POLL_MS), intervalMs: ERROR_ROW_INTERVAL_MS },
   ).catch(() => null);
   let cleaned = 0;
   for (const id of found ?? []) {
     try {
-      if ((await removeLegendRow(page, id)).removed) cleaned += 1;
+      if ((await removeLegendRow(page, id, capMs(deadline, ACTION_MAX_MS))).removed) cleaned += 1;
     } catch {
       // A failed removal must not mask the compile result.
     }
@@ -108,6 +125,7 @@ function buildReport(parts: ReportParts, startedAt: number): CompileReport {
     warnings: [],
     runtimeError: { present: false },
     runtimeChecked: false,
+    ownedStatus: null,
     cleanedErrorRows: 0,
     unchanged: false,
     ...parts,
@@ -163,12 +181,13 @@ async function unchangedReport(page: Page, rowsBefore: readonly LegendRow[], arg
   const runtimeChecked = status?.settled === true;
   if (ownedEntityId && !runtimeChecked) checkBudget(args, 'unchanged-settle', { unchanged: true, ownedEntityId });
   const runtimeError = runtimeChecked ? parseRuntimeStatus(status?.title ?? null) : { present: false };
-  return buildReport({ action: null, ownedEntityId, unchanged: true, runtimeError, runtimeChecked }, startedAt);
+  const ownedStatus = status?.title ?? rowsBefore.find((row) => row.entityId === ownedEntityId)?.status ?? null;
+  return buildReport({ action: null, ownedEntityId, ownedStatus, unchanged: true, runtimeError, runtimeChecked }, startedAt);
 }
 
 // A failed compile: remove the junk legend rows it created, keep the previous owned row if still present.
 async function failedReport(page: Page, rowsBefore: readonly LegendRow[], args: Budgeted, outcome: CompileOutcome, startedAt: number): Promise<CompileReport> {
-  const cleanedErrorRows = await cleanupNewErrorRows(page, rowsBefore, args.deadline.cap(ERROR_ROW_POLL_MS));
+  const cleanedErrorRows = await cleanupNewErrorRows(page, rowsBefore, args.deadline);
   const { action, errors, warnings } = outcome;
   // A failed compile may carry a new title, so only presence is checked here.
   const ownedEntityId = retainPresentOwned(args.previousOwned, rowsBefore);
@@ -176,20 +195,14 @@ async function failedReport(page: Page, rowsBefore: readonly LegendRow[], args: 
   return buildReport({ action, errors, warnings, ownedEntityId, cleanedErrorRows }, startedAt);
 }
 
-export async function compileAndCollect(page: Page, compileArgs: CompileArgs): Promise<CompileReport> {
-  const args: Budgeted = { ...compileArgs, deadline: compileArgs.deadline ?? createDeadline(COMPILE_DEADLINE_MS) };
-  const startedAt = Date.now();
-  // A collapsed console (fresh layout) is opened first and left open; the baseline is read only after that.
-  await ensureConsoleOpen(page);
-  const baseline = (await readConsole(page)).entries.length;
-  const rowsBefore = await listLegendRows(page);
-  const triggeredAt = Date.now();
-  if (!(await triggerCompile(page))) return unchangedReport(page, rowsBefore, args, startedAt);
-  const outcome = await waitForOutcome(page, baseline, args);
-  // TradingView refused to recompile the text of its last compile although the apply button was enabled.
-  if (outcome.nothingToUpdate && outcome.errors.length === 0) return unchangedReport(page, rowsBefore, args, startedAt);
-  if (outcome.errors.length > 0) return failedReport(page, rowsBefore, args, outcome, startedAt);
-  const { owned, status } = await settleOwnedRow(page, rowsBefore, args, { at: triggeredAt, action: outcome.action });
+async function appliedReport(
+  page: Page,
+  rowsBefore: readonly LegendRow[],
+  args: Budgeted,
+  outcome: CompileOutcome,
+  times: { readonly triggeredAt: number; readonly startedAt: number },
+): Promise<CompileReport> {
+  const { owned, status } = await settleOwnedRow(page, rowsBefore, args, { at: times.triggeredAt, action: outcome.action });
   return buildReport(
     {
       action: outcome.action,
@@ -198,7 +211,33 @@ export async function compileAndCollect(page: Page, compileArgs: CompileArgs): P
       runtimeError: parseRuntimeStatus(status?.title ?? null),
       runtimeChecked: status?.settled === true,
       ownedEntityId: owned,
+      ownedStatus: status?.title ?? null,
     },
-    startedAt,
+    times.startedAt,
   );
+}
+
+/** Before Ctrl+Enter: fail without compiling when too little time is left to read the outcome. */
+function checkTriggerReserve(args: Budgeted): void {
+  if (args.deadline.remaining() < TRIGGER_RESERVE_MS) {
+    throw deadlineError('TIMEOUT_COMPILE', 'before-trigger', args.deadline, { compiled: false });
+  }
+}
+
+export async function compileAndCollect(page: Page, compileArgs: CompileArgs): Promise<CompileReport> {
+  const args: Budgeted = { ...compileArgs, deadline: compileArgs.deadline ?? createDeadline(COMPILE_DEADLINE_MS) };
+  const startedAt = Date.now();
+  // A collapsed console (fresh layout) is opened first and left open; the baseline is read only after that.
+  await ensureConsoleOpen(page, consoleOptions(args));
+  const baseline = (await readConsole(page, consoleOptions(args))).entries.length;
+  const rowsBefore = await listLegendRows(page);
+  checkTriggerReserve(args);
+  const triggeredAt = Date.now();
+  const pressed = await triggerCompile(page, { actionTimeoutMs: capMs(args.deadline, ACTION_MAX_MS), onTrigger: args.onTriggered });
+  if (!pressed) return unchangedReport(page, rowsBefore, args, startedAt);
+  const outcome = await waitForOutcome(page, baseline, args);
+  const route = routeOutcome(outcome);
+  if (route === 'unchanged') return unchangedReport(page, rowsBefore, args, startedAt);
+  if (route === 'failed') return failedReport(page, rowsBefore, args, outcome, startedAt);
+  return appliedReport(page, rowsBefore, args, outcome, { triggeredAt, startedAt });
 }

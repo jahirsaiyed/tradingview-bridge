@@ -33,11 +33,16 @@ const CLICK_TIMEOUT_MS = 5000;
 const HINT =
   "Open the Pine Editor's console pane (the >_ button at the bottom-left of the editor, or Ctrl+`) and retry.";
 
-export function consoleUnreadableError(reason: 'missing' | 'not-opened', state: ConsolePaneState): TvError {
-  const what =
-    reason === 'missing'
-      ? 'The Pine Editor console pane is hidden and its toggle was not found'
-      : 'The Pine Editor console pane did not open after clicking its toggle';
+const REASON_TEXT = {
+  missing: 'The Pine Editor console pane is hidden and its toggle was not found',
+  'not-clickable': 'The Pine Editor console pane is hidden and its toggle could not be clicked',
+  'not-opened': 'The Pine Editor console pane did not open after clicking its toggle',
+} as const;
+
+export type ConsoleUnreadableReason = keyof typeof REASON_TEXT;
+
+export function consoleUnreadableError(reason: ConsoleUnreadableReason, state: ConsolePaneState): TvError {
+  const what = REASON_TEXT[reason];
   return new TvError('SELECTOR_MISSING', `${what}, so compile results cannot be read. ${HINT}`, {
     selector: SEL.consoleToggle,
     reason,
@@ -61,7 +66,20 @@ export async function readConsolePaneState(page: Page): Promise<ConsolePaneState
   );
 }
 
-export type OpenOptions = Pick<PollOptions, 'now' | 'sleep'> & { readonly timeoutMs?: number };
+export type OpenOptions = Pick<PollOptions, 'now' | 'sleep'> & {
+  readonly timeoutMs?: number;
+  /** Bound of the click on the toggle (default 5 s). */
+  readonly clickTimeoutMs?: number;
+};
+
+// A toggle that exists but cannot be clicked (hidden, covered) is the same owner action as a missing one.
+async function clickToggle(page: Page, state: ConsolePaneState, timeoutMs: number): Promise<void> {
+  try {
+    await page.locator(SEL.consoleToggle).first().click({ timeout: timeoutMs });
+  } catch {
+    throw consoleUnreadableError('not-clickable', state);
+  }
+}
 
 /**
  * Makes the console readable: clicks a collapsed pane's toggle at most once, then waits (bounded) until
@@ -73,7 +91,7 @@ export async function ensureConsoleOpen(page: Page, options: OpenOptions = {}): 
   const decision = decideConsole(initial);
   if (decision === 'ready') return { opened: false };
   if (decision === 'missing') throw consoleUnreadableError('missing', initial);
-  if (decision === 'expand') await page.locator(SEL.consoleToggle).first().click({ timeout: CLICK_TIMEOUT_MS });
+  if (decision === 'expand') await clickToggle(page, initial, options.clickTimeoutMs ?? CLICK_TIMEOUT_MS);
   let last = initial;
   const open = await pollUntil(
     async () => {
@@ -90,8 +108,11 @@ export async function ensureConsoleOpen(page: Page, options: OpenOptions = {}): 
  * Reads the console lines and problem codes from the overlay editor, after making sure the pane is open.
  * The whole overlay text is read on purpose: problem codes come from the editor's marker widget too.
  */
-export async function readConsole(page: Page): Promise<{ entries: ConsoleEntry[]; problems: ProblemCode[] }> {
-  await ensureConsoleOpen(page);
+export async function readConsole(
+  page: Page,
+  options: OpenOptions = {},
+): Promise<{ entries: ConsoleEntry[]; problems: ProblemCode[] }> {
+  await ensureConsoleOpen(page, options);
   const text = await page.locator(SEL.overlayRoot).first().innerText();
   return { entries: parseConsoleEntries(text), problems: parseProblemCodes(text) };
 }

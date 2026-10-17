@@ -2,7 +2,7 @@ import type { Page } from 'playwright-core';
 import { SEL, TEXT } from '../selectors.js';
 import { TvError } from '../result.js';
 import { parseKeyStats, parseTradeRows, type KeyStats, type Trade } from '../parsers/strategy.js';
-import { deadlineError, type Deadline } from './deadline.js';
+import { capMs, deadlineError, type Deadline } from './deadline.js';
 import { STRATEGY_NAME_TIMEOUT_MS, TRADE_ROWS_TIMEOUT_MS } from './reportFlow.js';
 import { pollStable, pollUntil } from './waits.js';
 
@@ -10,6 +10,13 @@ const DEFAULT_REPORT_TIMEOUT_MS = 30_000;
 /** Two identical Key stats reads this far apart count as a settled report. */
 const STABLE_READ_INTERVAL_MS = 700;
 const STABLE_TIMEOUT_MS = 15_000;
+/** Upper bound of one Strategy Tester tab click; less when the caller's budget has less left. */
+const TAB_CLICK_MAX_MS = 5000;
+
+/** A tab click bound from the time a caller allows: at most 5 s, never 0 (0 means no timeout in Playwright). */
+export function tabClickMs(allowedMs: number): number {
+  return Math.max(1, Math.min(TAB_CLICK_MAX_MS, allowedMs));
+}
 
 /** The Key stats block text, or null until it renders with its labels. Scoped to the report container. */
 async function readKeyFactsText(page: Page): Promise<string | null> {
@@ -22,7 +29,7 @@ async function readKeyFactsText(page: Page): Promise<string | null> {
   );
 }
 
-async function openTab(page: Page, selector: string, name: string): Promise<void> {
+async function openTab(page: Page, selector: string, name: string, clickMs: number): Promise<void> {
   const tab = page.locator(selector).first();
   if (!(await tab.isVisible().catch(() => false))) {
     throw new TvError(
@@ -31,7 +38,7 @@ async function openTab(page: Page, selector: string, name: string): Promise<void
       { selector },
     );
   }
-  await tab.click();
+  await tab.click({ timeout: clickMs });
 }
 
 /**
@@ -49,7 +56,7 @@ export async function readKeyStats(
   const checkBudget = (phase: string): void => {
     if (deadline?.expired()) throw deadlineError('TIMEOUT_REPORT', phase, deadline);
   };
-  await openTab(page, SEL.reportTab, 'Strategy report');
+  await openTab(page, SEL.reportTab, 'Strategy report', deadline ? capMs(deadline, TAB_CLICK_MAX_MS) : TAB_CLICK_MAX_MS);
   const rendered = await pollUntil(() => readKeyFactsText(page), { timeoutMs: limit(timeoutMs), intervalMs: 500 });
   if (!rendered) {
     checkBudget('report-render');
@@ -100,7 +107,7 @@ export async function readTrades(
       { selector: SEL.reportRoot },
     );
   }
-  await openTab(page, SEL.tradesTab, 'List of Trades');
+  await openTab(page, SEL.tradesTab, 'List of Trades', tabClickMs(rowsTimeoutMs));
   const rowLocator = page.locator(SEL.reportRoot).locator('[role="row"], tr');
   const rows = await pollUntil(
     async () => {
@@ -110,6 +117,6 @@ export async function readTrades(
     { timeoutMs: rowsTimeoutMs, intervalMs: 500 },
   );
   const parsed = parseTradeRows(rows ?? []);
-  await page.locator(SEL.reportTab).first().click().catch(() => undefined);
+  await page.locator(SEL.reportTab).first().click({ timeout: tabClickMs(rowsTimeoutMs) }).catch(() => undefined);
   return { trades: parsed.trades.slice(0, limit), unparsed: parsed.unparsed };
 }

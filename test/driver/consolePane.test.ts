@@ -109,6 +109,28 @@ describe('ensureConsoleOpen', () => {
     expect(fake.log.filter((entry) => entry === 'click:toggle')).toHaveLength(1);
   });
 
+  it('turns a toggle that cannot be clicked (present but hidden) into SELECTOR_MISSING with the hint', async () => {
+    const fake = fakePage([COLLAPSED]);
+    const page = {
+      ...fake.page,
+      evaluate: fake.page.evaluate,
+      locator: () => ({
+        first: () => ({
+          click: async (options: { timeout: number }) => {
+            fake.log.push(`click-timeout:${options.timeout}`);
+            throw new Error('locator.click: Timeout 5000ms exceeded (element is not visible)');
+          },
+        }),
+      }),
+    } as unknown as Page;
+    const error = await ensureConsoleOpen(page, { ...fast, clickTimeoutMs: 1234 }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TvError);
+    expect((error as TvError).code).toBe('SELECTOR_MISSING');
+    expect((error as TvError).message).toMatch(/open the Pine Editor's console pane/i);
+    expect((error as TvError).details).toMatchObject({ selector: SEL.consoleToggle, reason: 'not-clickable' });
+    expect(fake.log).toContain('click-timeout:1234');
+  });
+
   it('waits for a pane that is already opening without clicking it closed', async () => {
     const opening: ConsolePaneState = { togglePresent: true, toggleActive: true, paneHeight: 0 };
     const fake = fakePage([opening, opening, OPEN]);

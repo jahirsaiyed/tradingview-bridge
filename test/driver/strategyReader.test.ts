@@ -65,3 +65,38 @@ describe('readTrades container check', () => {
     expect((error as TvError).details).toEqual({ selector: SEL.tradesTab });
   });
 });
+
+// Records every click timeout; the trades table shows one closed trade row.
+function clickRecordingPage(clicks: number[]): Page {
+  const handle = {
+    first: () => handle,
+    count: async () => 1,
+    isVisible: async () => true,
+    click: async (options?: { timeout?: number }) => void clicks.push(options?.timeout ?? -1),
+    locator: () => handle,
+    allInnerTexts: async () => ['1Long Exit Oct 14, 2026, 17:00 2 USD 1 1 USD'],
+  };
+  return { locator: () => handle, evaluate: async () => 'Total PnL 1 USD Profit factor 1.5' } as unknown as Page;
+}
+
+describe('Strategy Tester tab clicks are bounded', () => {
+  it('readTrades bounds its tab clicks by the rows timeout (at most 5 s, at least 1 ms)', async () => {
+    const clicks: number[] = [];
+    await readTrades(clickRecordingPage(clicks), 5, 1_200);
+    expect(clicks).toEqual([1_200, 1_200]);
+    const plenty: number[] = [];
+    await readTrades(clickRecordingPage(plenty), 5, 30_000);
+    expect(plenty).toEqual([5_000, 5_000]);
+    const none: number[] = [];
+    await readTrades(clickRecordingPage(none), 5, 0);
+    expect(none).toEqual([1, 1]);
+  });
+
+  it('readKeyStats bounds the report tab click by the deadline', async () => {
+    let t = 0;
+    const deadline = createDeadline(3_000, () => t);
+    const clicks: number[] = [];
+    await readKeyStats(clickRecordingPage(clicks), 30_000, deadline).catch(() => undefined);
+    expect(clicks[0]).toBe(3_000);
+  });
+});

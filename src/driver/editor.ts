@@ -8,6 +8,9 @@ import { withTimeout } from './waits.js';
 const SURFACE = `${SEL.overlayRoot} ${SEL.editorSurface}`;
 /** Bound for the clipboard read-back, so one hung call cannot hold the driver mutex forever. */
 const CLIPBOARD_READ_TIMEOUT_MS = 10_000;
+/** Default bounds of the compile trigger's actions when the caller has no deadline. */
+const FOCUS_TIMEOUT_MS = 10_000;
+const APPLY_CHECK_TIMEOUT_MS = 2000;
 
 async function focusEditor(page: Page): Promise<void> {
   await page.locator(SURFACE).first().click();
@@ -70,10 +73,17 @@ export async function writeAndVerify(page: Page, source: string): Promise<void> 
  * Compiles the editor source. Returns false, without compiling, when the source is identical to
  * the last compiled version: TradingView disables the apply button then and Ctrl+Enter is a no-op.
  */
-export async function triggerCompile(page: Page): Promise<boolean> {
+export async function triggerCompile(
+  page: Page,
+  options: { readonly actionTimeoutMs?: number; readonly onTrigger?: () => void } = {},
+): Promise<boolean> {
+  const actionMs = options.actionTimeoutMs ?? FOCUS_TIMEOUT_MS;
   const apply = page.locator(SEL.applyToChartButton).first();
-  if ((await apply.count()) > 0 && (await apply.isDisabled({ timeout: 2000 }))) return false;
-  await focusEditor(page);
+  if ((await apply.count()) > 0 && (await apply.isDisabled({ timeout: Math.min(APPLY_CHECK_TIMEOUT_MS, actionMs) }))) {
+    return false;
+  }
+  await page.locator(SURFACE).first().click({ timeout: actionMs });
+  options.onTrigger?.();
   await page.keyboard.press('Control+Enter');
   return true;
 }
