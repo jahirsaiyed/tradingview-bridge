@@ -34,6 +34,7 @@ export default defineConfig({
         'src/driver/ownedSettle.ts',
         'src/driver/consolePane.ts',
         'src/driver/legendSnapshot.ts',
+        'src/driver/processLock.ts',
       ],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },

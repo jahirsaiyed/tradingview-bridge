@@ -14,6 +14,7 @@ export const ERROR_CODES = [
   'NOT_OWNED',
   'INVALID_ARGUMENT',
   'REMOVE_FAILED',
+  'BRIDGE_BUSY',
   'INTERNAL',
 ] as const;
 

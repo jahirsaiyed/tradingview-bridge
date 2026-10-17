@@ -2,6 +2,7 @@ import { chromium, type Browser, type Page } from 'playwright-core';
 import { resolveCdpEndpoint } from '../config.js';
 import { TvError } from '../result.js';
 import { isTradingViewChartUrl } from './chartUrl.js';
+import { acquireBridgeLock, installReleaseOnExit, nodeLockDeps, portOfEndpoint, type LockDeps } from './processLock.js';
 
 /** Default bound for Playwright actions without an explicit timeout. */
 export const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
@@ -22,7 +23,26 @@ export interface Connection {
   readonly page: Page;
 }
 
-export async function connect(endpoint: string = resolveCdpEndpoint()): Promise<Connection> {
+/**
+ * Connects to the dedicated Chrome after taking the per-port process lock (BRIDGE_BUSY while another bridge
+ * process holds it). The lock is released when this process ends, or right away when a first connect fails.
+ */
+export async function connect(
+  endpoint: string = resolveCdpEndpoint(),
+  lockDeps: LockDeps = nodeLockDeps(),
+): Promise<Connection> {
+  const lock = acquireBridgeLock(portOfEndpoint(endpoint), lockDeps);
+  try {
+    const connection = await connectToChart(endpoint);
+    if (lock) installReleaseOnExit(lock.release);
+    return connection;
+  } catch (error) {
+    if (lock?.fresh) lock.release(); // a reconnect keeps the lock this process already held
+    throw error;
+  }
+}
+
+async function connectToChart(endpoint: string): Promise<Connection> {
   let browser: Browser;
   try {
     browser = await chromium.connectOverCDP(endpoint);
