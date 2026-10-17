@@ -20,8 +20,15 @@ export interface CompileOutcome {
   readonly action: 'added' | 'updated' | null;
   readonly errors: readonly CompileProblem[];
   readonly warnings: readonly CompileProblem[];
+  /** TradingView did not recompile: the text equals its last compile (live-verified 2026-10-17). */
+  readonly nothingToUpdate: boolean;
 }
 
+/**
+ * Printed instead of compiling when the editor text equals the last compile, even a failed one, while the
+ * apply button is still enabled (seen when an earlier run left a failed compile of the same text).
+ */
+const NOTHING_TO_UPDATE = 'There is nothing to update.';
 const CONSOLE_LINE = /^(\d{1,2}:\d{2}:\d{2}(?: [AP]M)?) (.+)$/; // 12- or 24-hour clock
 const PROBLEM_CODE_LINE = /^(.*)\(([A-Z]{2}\d{4,6})\)$/;
 const ERROR_ENTRY = /^Error at (\d+):(\d+) (.*)$/;
@@ -71,6 +78,7 @@ export function analyzeCompile(
     : messages.includes('Updated on chart.')
       ? 'updated'
       : null;
-  const finished = errors.length > 0 || (compiled && action !== null);
-  return { finished, compiled, action, errors, warnings };
+  const nothingToUpdate = messages.includes(NOTHING_TO_UPDATE);
+  const finished = errors.length > 0 || (compiled && action !== null) || nothingToUpdate;
+  return { finished, compiled, action, errors, warnings, nothingToUpdate };
 }

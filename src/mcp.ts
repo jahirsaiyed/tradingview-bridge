@@ -48,7 +48,9 @@ const COMPILE_DESCRIPTION =
   'warnings are best effort and unverified (their console format has never been observed live): an empty ' +
   'warnings list does not prove there were none. The whole call shares one 45 s time budget: once it is used ' +
   'up the call fails with TIMEOUT_COMPILE (details.reason "deadline", details.phase = the phase reached; ' +
-  'details.action and details.ownedEntityId when the compile itself already ran) instead of running past about a minute.';
+  'details.action and details.ownedEntityId when the compile itself already ran) instead of running past about a minute. ' +
+  'Results are read from the editor console pane: a collapsed pane is opened (one click) and left open; if it ' +
+  'cannot be opened the call fails with SELECTOR_MISSING (ask the owner to open the Pine Editor console pane).';
 
 const SET_SCRIPT_DESCRIPTION =
   'REPLACES the Pine Editor contents with the given source (clipboard paste, verified by read-back). ' +
@@ -77,7 +79,8 @@ const STRATEGY_STATS_DESCRIPTION =
 
 const SELFTEST_DESCRIPTION =
   'Check that the selectors this bridge depends on still resolve in the current TradingView UI. If the ' +
-  'overlay editor cannot be opened, layoutError says why and the selectors are still checked.';
+  'overlay editor cannot be opened, layoutError says why and the selectors are still checked. console is the ' +
+  'editor console pane state (open/collapsed/missing); tv_compile opens a collapsed pane itself.';
 
 function registerSessionTools(server: McpServer, getDriver: GetDriver): void {
   server.tool(

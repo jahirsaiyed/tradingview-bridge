@@ -2,7 +2,8 @@ import type { Page } from 'playwright-core';
 import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import type { LayoutMode } from './layout.js';
-import type { SelftestPayload } from './types.js';
+import { decideConsole, readConsolePaneState } from './consolePane.js';
+import type { ConsoleStatus, SelftestPayload } from './types.js';
 
 export interface SelectorCheck {
   readonly name: string;
@@ -16,6 +17,8 @@ const CHECKS: ReadonlyArray<{ name: string; selector: string; required: boolean 
   { name: 'editorSurface', selector: `${SEL.overlayRoot} ${SEL.editorSurface}`, required: true },
   { name: 'overlayMoreButton', selector: SEL.overlayMoreButton, required: true },
   { name: 'chartCanvas', selector: SEL.chartCanvas, required: true },
+  // Compiles read the console: the pane (open or collapsed) or at least its toggle must exist.
+  { name: 'consolePane', selector: `${SEL.consolePane}, ${SEL.consoleToggle}`, required: true },
   { name: 'legendToggler', selector: SEL.legendToggler, required: false },
   { name: 'reportTab', selector: SEL.reportTab, required: false },
   { name: 'tradesTab', selector: SEL.tradesTab, required: false },
@@ -43,6 +46,15 @@ export interface SelftestLayout {
   detect(): Promise<LayoutMode>;
 }
 
+/** Read-only: the selftest reports the console pane state but never opens it (tv_compile does). */
+async function consoleStatus(page: Page): Promise<ConsoleStatus> {
+  const state = await readConsolePaneState(page).catch(() => null);
+  if (state === null) return 'missing';
+  const decision = decideConsole(state);
+  if (decision === 'ready') return 'open';
+  return decision === 'missing' ? 'missing' : 'collapsed';
+}
+
 function describeError(error: unknown): string {
   if (error instanceof TvError) return `${error.code}: ${error.message}`;
   return error instanceof Error ? error.message : String(error);
@@ -63,6 +75,6 @@ export async function selftestAfterLayout(page: Page, layout: SelftestLayout): P
     mode = await layout.detect().catch((): LayoutMode => 'closed');
   }
   const checks = await runSelftest(page);
-  const payload = { layout: mode, checks, failures: summarizeChecks(checks) };
+  const payload = { layout: mode, console: await consoleStatus(page), checks, failures: summarizeChecks(checks) };
   return layoutError === null ? payload : { ...payload, layoutError };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Page } from 'playwright-core';
 import { runSelftest, selftestAfterLayout, summarizeChecks, type SelectorCheck } from '../../src/driver/selftest.js';
 import { TvError } from '../../src/result.js';
+import { SEL } from '../../src/selectors.js';
 
 const check = (name: string, found: boolean, required: boolean): SelectorCheck => ({
   name,
@@ -25,9 +26,43 @@ describe('summarizeChecks', () => {
   });
 });
 
-function fakePage(found: boolean): Page {
-  return { locator: () => ({ count: async () => (found ? 1 : 0) }) } as unknown as Page;
+function fakePage(found: boolean, consoleOpen = true): Page {
+  const state = found
+    ? { togglePresent: true, toggleActive: consoleOpen, paneHeight: consoleOpen ? 50 : 0 }
+    : { togglePresent: false, toggleActive: null, paneHeight: null };
+  return {
+    locator: () => ({ count: async () => (found ? 1 : 0) }),
+    evaluate: async () => state,
+  } as unknown as Page;
 }
+
+describe('console pane check', () => {
+  it('is a required check named consolePane that accepts the pane or its toggle', async () => {
+    const checks = await runSelftest(fakePage(true));
+    const consoleCheck = checks.find((c) => c.name === 'consolePane');
+    expect(consoleCheck?.required).toBe(true);
+    expect(consoleCheck?.selector).toContain(SEL.consolePane);
+    expect(consoleCheck?.selector).toContain(SEL.consoleToggle);
+  });
+
+  it('reports the console state without opening it', async () => {
+    const layout = { ensureOverlay: async () => 'overlay' as const, detect: async () => 'overlay' as const };
+    expect((await selftestAfterLayout(fakePage(true, true), layout)).console).toBe('open');
+    expect((await selftestAfterLayout(fakePage(true, false), layout)).console).toBe('collapsed');
+    const missing = await selftestAfterLayout(fakePage(false), layout);
+    expect(missing.console).toBe('missing');
+    expect(missing.failures).toContain('consolePane');
+  });
+
+  it('reports the console state as missing when reading it fails', async () => {
+    const page = { locator: () => ({ count: async () => 1 }), evaluate: async () => Promise.reject(new Error('detached')) };
+    const payload = await selftestAfterLayout(page as unknown as Page, {
+      ensureOverlay: async () => 'overlay',
+      detect: async () => 'overlay',
+    });
+    expect(payload.console).toBe('missing');
+  });
+});
 
 describe('runSelftest', () => {
   it('reports every selector as found or not', async () => {

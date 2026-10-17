@@ -27,6 +27,12 @@ export const SEL = {
   // TradingView's Help Center overlay; Escape does not close it, its Close button does.
   supportDialog: '[data-name="support-dialog"]',
   pineLogsWidget: '.widgetbar-widget-pine_logs',
+  // Overlay editor console pane (live-verified 2026-10-17): collapsed on a fresh layout (height 0, toggle
+  // data-tooltip "Open console", data-active="false"); open shows "Close console" and data-active="true".
+  consoleToggle:
+    '[data-name="pine-dialog"] [class*="consoleButtonWrapper-"] button, ' +
+    '[data-name="pine-dialog"] button[data-tooltip$=" console"]',
+  consolePane: '[data-name="pine-dialog"] [class*="consoleWrapper-"]',
 } as const;
 
 export const TEXT = {

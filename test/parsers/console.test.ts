@@ -84,6 +84,17 @@ describe('analyzeCompile', () => {
     expect(analyzeCompile([entry('Compiling...'), entry('Compiled.')]).finished).toBe(false);
   });
 
+  it('finishes with nothingToUpdate when TradingView refuses to recompile the last compiled text', () => {
+    // Live 2026-10-17: re-compiling the text of the last (failed) compile, apply button still enabled.
+    const outcome = analyzeCompile([entry('There is nothing to update.')]);
+    expect(outcome).toMatchObject({ finished: true, nothingToUpdate: true, compiled: false, action: null, errors: [] });
+  });
+
+  it('reports nothingToUpdate false for a normal compile', () => {
+    const outcome = analyzeCompile([entry('Compiling...'), entry('Compiled.'), entry('Added to chart.')]);
+    expect(outcome.nothingToUpdate).toBe(false);
+  });
+
   it('collects warnings (format assumed, not yet observed live)', () => {
     const outcome = analyzeCompile([entry('Compiled.'), entry('Warning at 3:4 careful'), entry('Added to chart.')]);
     expect(outcome.warnings).toEqual([{ line: 3, column: 4, message: 'careful' }]);

@@ -2,7 +2,8 @@ import type { Page } from 'playwright-core';
 import { TvError } from '../result.js';
 import { analyzeCompile, type CompileOutcome, type CompileProblem } from '../parsers/console.js';
 import { parseRuntimeStatus, type RuntimeError } from '../parsers/runtime.js';
-import { readConsole, triggerCompile } from './editor.js';
+import { triggerCompile } from './editor.js';
+import { ensureConsoleOpen, readConsole } from './consolePane.js';
 import { freshEntries } from './compileState.js';
 import { findNewCompileErrorRows } from './errorRows.js';
 import { listLegendRows, removeLegendRow } from './legend.js';
@@ -178,11 +179,15 @@ async function failedReport(page: Page, rowsBefore: readonly LegendRow[], args: 
 export async function compileAndCollect(page: Page, compileArgs: CompileArgs): Promise<CompileReport> {
   const args: Budgeted = { ...compileArgs, deadline: compileArgs.deadline ?? createDeadline(COMPILE_DEADLINE_MS) };
   const startedAt = Date.now();
+  // A collapsed console (fresh layout) is opened first and left open; the baseline is read only after that.
+  await ensureConsoleOpen(page);
   const baseline = (await readConsole(page)).entries.length;
   const rowsBefore = await listLegendRows(page);
   const triggeredAt = Date.now();
   if (!(await triggerCompile(page))) return unchangedReport(page, rowsBefore, args, startedAt);
   const outcome = await waitForOutcome(page, baseline, args);
+  // TradingView refused to recompile the text of its last compile although the apply button was enabled.
+  if (outcome.nothingToUpdate && outcome.errors.length === 0) return unchangedReport(page, rowsBefore, args, startedAt);
   if (outcome.errors.length > 0) return failedReport(page, rowsBefore, args, outcome, startedAt);
   const { owned, status } = await settleOwnedRow(page, rowsBefore, args, { at: triggeredAt, action: outcome.action });
   return buildReport(

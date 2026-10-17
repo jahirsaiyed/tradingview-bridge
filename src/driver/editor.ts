@@ -4,12 +4,6 @@ import { TvError } from '../result.js';
 import { sourcesEqual } from '../parsers/source.js';
 import { withClipboardAccess } from './clipboard.js';
 import { withTimeout } from './waits.js';
-import {
-  parseConsoleEntries,
-  parseProblemCodes,
-  type ConsoleEntry,
-  type ProblemCode,
-} from '../parsers/console.js';
 
 const SURFACE = `${SEL.overlayRoot} ${SEL.editorSurface}`;
 /** Bound for the clipboard read-back, so one hung call cannot hold the driver mutex forever. */
@@ -70,13 +64,6 @@ export function pasteMismatch(source: string, actual: string): TvError {
 export async function writeAndVerify(page: Page, source: string): Promise<void> {
   const actual = await writeAndReadBack(page, source);
   if (!sourcesEqual(source, actual)) throw pasteMismatch(source, actual);
-}
-
-export async function readConsole(
-  page: Page,
-): Promise<{ entries: ConsoleEntry[]; problems: ProblemCode[] }> {
-  const text = await page.locator(SEL.overlayRoot).first().innerText();
-  return { entries: parseConsoleEntries(text), problems: parseProblemCodes(text) };
 }
 
 /**

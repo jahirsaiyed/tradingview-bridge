@@ -66,8 +66,12 @@ export interface SetScriptOptions {
   readonly overwriteExisting?: boolean;
 }
 
+/** Overlay editor console pane: compiles open a collapsed pane themselves; missing means they cannot read it. */
+export type ConsoleStatus = 'open' | 'collapsed' | 'missing';
+
 export interface SelftestPayload {
   readonly layout: LayoutMode;
+  readonly console: ConsoleStatus;
   readonly checks: readonly SelectorCheck[];
   readonly failures: readonly string[];
   /** Present when the overlay editor could not be opened; the selectors were still checked. */
