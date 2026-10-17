@@ -19,6 +19,13 @@ export const SEL = {
   applyToChartButton: '[data-name="pine-dialog"] [data-qa-id="add-script-to-chart"]',
   reportTab: '[id="Strategy report"]',
   tradesTab: '[id="List of Trades"]',
+  // Strategy Tester (live-verified 2026-10-17): Key stats block, the report shell, and the footer tab
+  // that names the strategy whose report is displayed (title, or short title when one is declared).
+  reportKeyFacts: '[data-qa-id="strategy-key-facts"]',
+  reportRoot: '#bottom-area .bottom-widgetbar-content.backtesting',
+  reportStrategyName: '#footer-chart-panel button[data-qa-id="backtesting"]',
+  // TradingView's Help Center overlay; Escape does not close it, its Close button does.
+  supportDialog: '[data-name="support-dialog"]',
   pineLogsWidget: '.widgetbar-widget-pine_logs',
 } as const;
 
