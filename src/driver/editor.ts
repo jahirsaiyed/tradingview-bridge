@@ -3,6 +3,7 @@ import { SEL } from '../selectors.js';
 import { TvError } from '../result.js';
 import { sourcesEqual } from '../parsers/source.js';
 import { withClipboardAccess } from './clipboard.js';
+import { withTimeout } from './waits.js';
 import {
   parseConsoleEntries,
   parseProblemCodes,
@@ -11,6 +12,8 @@ import {
 } from '../parsers/console.js';
 
 const SURFACE = `${SEL.overlayRoot} ${SEL.editorSurface}`;
+/** Bound for the clipboard read-back, so one hung call cannot hold the driver mutex forever. */
+const CLIPBOARD_READ_TIMEOUT_MS = 10_000;
 
 async function focusEditor(page: Page): Promise<void> {
   await page.locator(SURFACE).first().click();
@@ -30,7 +33,11 @@ async function copyRaw(page: Page): Promise<string> {
   await focusEditor(page);
   await page.keyboard.press('Control+A');
   await page.keyboard.press('Control+C');
-  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  const copied = await withTimeout(
+    page.evaluate(() => navigator.clipboard.readText()),
+    CLIPBOARD_READ_TIMEOUT_MS,
+    () => new TvError('PASTE_MISMATCH', `Reading the clipboard did not finish within ${CLIPBOARD_READ_TIMEOUT_MS} ms`),
+  );
   if (copied === sentinel) {
     throw new TvError('PASTE_MISMATCH', 'Could not read the editor contents (copy produced no text)');
   }
@@ -45,18 +52,24 @@ export async function copySource(page: Page): Promise<string> {
   return withClipboardAccess(page, () => copyRaw(page));
 }
 
-export async function writeAndVerify(page: Page, source: string): Promise<void> {
-  // One clipboard grant/restore/clear around both the paste and the read-back.
-  const actual = await withClipboardAccess(page, async () => {
+/** Pastes the source and returns what the editor holds afterwards (one clipboard grant/restore). */
+export async function writeAndReadBack(page: Page, source: string): Promise<string> {
+  return withClipboardAccess(page, async () => {
     await pasteRaw(page, source);
     return copyRaw(page);
   });
-  if (!sourcesEqual(source, actual)) {
-    throw new TvError('PASTE_MISMATCH', 'Editor content differs from the source that was pasted', {
-      expectedLength: source.length,
-      actualLength: actual.length,
-    });
-  }
+}
+
+export function pasteMismatch(source: string, actual: string): TvError {
+  return new TvError('PASTE_MISMATCH', 'Editor content differs from the source that was pasted', {
+    expectedLength: source.length,
+    actualLength: actual.length,
+  });
+}
+
+export async function writeAndVerify(page: Page, source: string): Promise<void> {
+  const actual = await writeAndReadBack(page, source);
+  if (!sourcesEqual(source, actual)) throw pasteMismatch(source, actual);
 }
 
 export async function readConsole(

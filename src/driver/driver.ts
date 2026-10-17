@@ -5,7 +5,7 @@ import { scriptTitles } from '../parsers/source.js';
 import { compileAndCollect } from './compile.js';
 import { deriveCompiled } from './compileState.js';
 import { withBeforeUnloadAccept } from './dialogs.js';
-import { copySource, writeAndVerify } from './editor.js';
+import { copySource, pasteMismatch, writeAndReadBack, writeAndVerify } from './editor.js';
 import { ensureLayout, type LayoutOps } from './layout.js';
 import { removeLegendRow } from './legend.js';
 import { createMutex } from './mutex.js';
@@ -16,7 +16,7 @@ import { ensureLoggedIn, isLoggedIn, navigateToChart, readChartLabel, takeScreen
 import { applyPageTimeouts, NAVIGATION_TIMEOUT_MS } from './connection.js';
 import { selftestAfterLayout } from './selftest.js';
 import { cacheForSource, resolveRuntime, type RuntimeCache } from './runtimeCache.js';
-import { isSafeToOverwrite, rememberText } from './scratch.js';
+import { isSafeToOverwrite, recordPaste } from './scratch.js';
 import { reportTimeoutError, strategyPayload } from './strategyPayload.js';
 import type {
   CompilePayload,
@@ -34,6 +34,12 @@ const NOT_SCRATCH_MESSAGE =
   'The Pine Editor holds a script this bridge did not write in this session (it may be one of the ' +
   "owner's scripts), so it was not replaced. Ask the owner first: open a new scratch script in the " +
   'Pine Editor, or retry with overwriteExisting: true only after the owner confirms it may be replaced.';
+
+// tv_read_strategy_stats has no overwriteExisting argument, so the recovery path has its own message.
+const RECOVERY_NOT_SCRATCH_MESSAGE =
+  'The Pine Editor content changed during the reload recovery: it now holds a script this bridge did not ' +
+  'write, so the bridge refused to re-paste over it. Ask the owner, or open a new scratch script, set the ' +
+  'script again with tv_set_script and compile, then retry tv_read_strategy_stats.';
 
 export class TvDriver implements DriverApi {
   /**
@@ -130,26 +136,33 @@ export class TvDriver implements DriverApi {
     return { url };
   }
 
-  private async assertScratch(): Promise<void> {
+  private async assertScratch(message: string = NOT_SCRATCH_MESSAGE): Promise<void> {
     const current = await copySource(this.page).catch((error: unknown) => {
       if (error instanceof TvError && error.code === 'PASTE_MISMATCH') return null; // unreadable
       throw error;
     });
     if (current !== null && isSafeToOverwrite(current, new Set(this.knownTexts))) return;
     const prefix = current === null ? 'The Pine Editor contents could not be read. ' : '';
-    throw new TvError('EDITOR_NOT_SCRATCH', prefix + NOT_SCRATCH_MESSAGE, { editorReadable: current !== null });
+    throw new TvError('EDITOR_NOT_SCRATCH', prefix + message, { editorReadable: current !== null });
   }
 
   private async setScriptImpl(source: string, options?: SetScriptOptions): Promise<{ length: number }> {
     await this.overlay();
     if (options?.overwriteExisting !== true) await this.assertScratch();
+    let readBack: string;
     try {
-      await writeAndVerify(this.page, source);
+      readBack = await writeAndReadBack(this.page, source);
     } catch (error) {
       this.lastSource = null; // the editor may now hold anything: no stale title or cache key
       throw error;
     }
-    this.knownTexts = rememberText(this.knownTexts, source);
+    // On a mismatch the read-back text is what the bridge itself left in the editor: remember it too.
+    const { matched, known } = recordPaste(this.knownTexts, source, readBack);
+    this.knownTexts = known;
+    if (!matched) {
+      this.lastSource = null;
+      throw pasteMismatch(source, readBack);
+    }
     this.lastSource = source;
     this.runtimeCache = cacheForSource(this.runtimeCache, source);
     return { length: source.length };
@@ -231,7 +244,7 @@ export class TvDriver implements DriverApi {
     this.runtimeCache = null;
     try {
       await this.overlay();
-      await this.assertScratch(); // the reloaded editor may hold a different script
+      await this.assertScratch(RECOVERY_NOT_SCRATCH_MESSAGE); // the reloaded editor may hold a different script
       await writeAndVerify(this.page, source);
       const result = await this.compileImpl(); // never the public compile(): the mutex is held
       if (!result.compiled) {

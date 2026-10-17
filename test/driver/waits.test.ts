@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pollUntil } from '../../src/driver/waits.js';
+import { pollUntil, withTimeout } from '../../src/driver/waits.js';
 
 function fakeClock() {
   let t = 0;
@@ -50,5 +50,20 @@ describe('pollUntil', () => {
         { timeoutMs: 100, ...fakeClock() },
       ),
     ).rejects.toThrow('probe failed');
+  });
+});
+
+describe('withTimeout', () => {
+  it('resolves with the value when the promise settles in time', async () => {
+    await expect(withTimeout(Promise.resolve(7), 50, () => new Error('late'))).resolves.toBe(7);
+  });
+
+  it('rejects with the given error when the promise does not settle in time', async () => {
+    const never = new Promise<number>(() => undefined);
+    await expect(withTimeout(never, 10, () => new Error('clipboard read timed out'))).rejects.toThrow('clipboard read timed out');
+  });
+
+  it('passes through the original rejection', async () => {
+    await expect(withTimeout(Promise.reject(new Error('boom')), 50, () => new Error('late'))).rejects.toThrow('boom');
   });
 });
