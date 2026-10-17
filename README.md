@@ -30,8 +30,8 @@ Every tool returns JSON with `ok: true` plus its data, or `ok: false` with `erro
 `tv_screenshot` returns a PNG image.
 
 Error codes: `NOT_CONNECTED`, `NOT_LOGGED_IN`, `NO_CHART`, `UNEXPECTED_DIALOG`, `LAYOUT_FAILED`,
-`TIMEOUT_COMPILE`, `TIMEOUT_REPORT`, `SELECTOR_MISSING`, `PASTE_MISMATCH`, `EDITOR_NOT_SCRATCH`, `NOT_OWNED`,
-`INVALID_ARGUMENT`, `REMOVE_FAILED`, `INTERNAL`.
+`TIMEOUT_COMPILE`, `TIMEOUT_REPORT`, `FOREIGN_REPORT`, `SESSION_DISCONNECTED`, `SELECTOR_MISSING`,
+`PASTE_MISMATCH`, `EDITOR_NOT_SCRATCH`, `NOT_OWNED`, `INVALID_ARGUMENT`, `REMOVE_FAILED`, `INTERNAL`.
 
 ### `tv_set_script`
 
@@ -56,6 +56,12 @@ pristine: use `overwriteExisting: true` after confirming with the owner.
 - `unchanged`: `true` when the source already matches the chart. Recompiling identical source is a no-op:
   the previous `runtimeError` is returned with `runtimeChecked: false`.
 - `runtimeChecked`: `false` means the runtime status was NOT read. It does not mean the script is clean.
+  `true` is a point-in-time read: after the compile the bridge waits (up to 10 s) until the script's legend row
+  stops calculating (TradingView sets `data-status="loading"` on it) and its status badge stays unchanged for
+  0.7 s (1.5 s when no badge is shown), then reads it. A slow script may still raise its error later (for
+  example on a new bar): call `tv_compile` again (it returns `unchanged` plus the cached result) or read Pine
+  logs. If the row does not stop calculating within 10 s, `runtimeChecked` is `false`; a runtime error badge
+  that is already shown is still returned in `runtimeError`.
 - `cleanedErrorRows`: number of junk "Compilation error" legend rows the bridge removed after a failed compile.
 
 ### `tv_read_pine_logs`
@@ -71,7 +77,19 @@ rendered with no output; if the pane does not render within 8 s the call fails w
 Returns `keyStats` and, with `includeTrades: true`, up to `tradeLimit` recent `trades`. The trade table is
 virtualized, so only rendered rows can be read: `tradesTotal` is the closed-trade count from the key stats
 (`null` when unknown) and `tradesTruncated: true` means fewer trades were returned than
-`min(tradeLimit, tradesTotal)`. If the report does not render (a zero-trade strategy, or a stalled Strategy
+`min(tradeLimit, tradesTotal)`.
+
+The result also names the report: `strategyName` is the strategy the Strategy Tester shows (its footer tab;
+TradingView shows the short title when one is declared) and `matchesOwnedScript` is `true`/`false` when both
+that name and the script the bridge set are known (`null` otherwise). When the Strategy Tester shows another
+strategy (for example one of the owner's), the call fails with `FOREIGN_REPORT` and returns no numbers.
+Key stats are read only from the report's Key stats block. Before reading, the bridge waits (up to 15 s) until
+its own strategy's legend row stops recalculating, then requires two identical key-stats reads 0.7 s apart.
+TradingView updates the numbers while the row is still calculating, so stats right after a recompile are
+best-effort until the numbers stop changing; key stats that keep changing for 15 s fail with `TIMEOUT_REPORT`
+(`details.reason: "not-settled"`, no reload).
+
+If the report does not render (a zero-trade strategy, or a stalled Strategy
 Tester) the call fails with `TIMEOUT_REPORT`. With `allowReload: true` (default `false`) it instead reloads
 the page, which drops unsaved chart state and can take up to a minute, re-applies the script and retries once.
 
@@ -88,10 +106,25 @@ unsaved chart contents. Other tools can be called right afterwards, because the 
 `tv_read_pine_logs`, `tv_remove_script`, `tv_selftest`) re-establish the overlay editor layout, reopening the
 editor if needed (`tv_read_pine_logs` passes through split view and ends in overlay). `tv_status` only
 reports the current layout. Every tool except `tv_status` fails with `NOT_LOGGED_IN` when TradingView shows
-its sign-in button.
+its sign-in button, and with `SESSION_DISCONNECTED` when it shows the "Session disconnected" modal (see below);
+`tv_status` reports the latter as `sessionDisconnected: true` instead of failing.
+
+### `tv_read_pine_logs` and the Help Center
+
+The Pine logs entry of the editor's More menu has a "?" help icon. If a click lands on it, TradingView opens
+its Help Center overlay (Escape does not close it). The bridge then closes it with the overlay's own Close
+button and fails with `UNEXPECTED_DIALOG` (`details.closed` says whether it is gone); retry the call.
 
 Not implemented yet: `tv_set_inputs`, `tv_read_data_window` (edit `input.*` defaults in the source
 and use `log.info` + `tv_read_pine_logs` instead).
+
+## One TradingView session at a time
+
+TradingView allows one active session per account. When the account is opened on another browser or device,
+the dedicated Chrome shows a full-page "Session disconnected" modal and nothing else works. The bridge detects
+it (page text "Session disconnected" plus "accessed from another browser or device"): `tv_status` returns
+`sessionDisconnected: true` and every other tool fails with `SESSION_DISCONNECTED`. To continue, click Connect
+in the dedicated Chrome window yourself; this ends the other session. The bridge never clicks it.
 
 ## Safety
 
