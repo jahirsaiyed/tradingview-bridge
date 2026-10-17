@@ -9,6 +9,7 @@ import { SOURCES } from './fixtures/pine.js';
 import { writeAndVerify } from '../src/driver/editor.js';
 import { compileAndCollect } from '../src/driver/compile.js';
 import { extractScriptTitle } from '../src/parsers/source.js';
+import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
 
 type Section = (page: Page) => Promise<void>;
 
@@ -62,6 +63,16 @@ const sections: Record<string, Section> = {
       `runtime error detected (${runtime.runtimeError.code})`,
     );
     state.owned = runtime.ownedEntityId;
+  },
+  remove: async (page) => {
+    if (!state.owned) throw new Error("Run the 'compile' section first (it records the owned legend row).");
+    const result = await removeLegendRow(page, state.owned);
+    check(result.removed, 'owned script removed from the chart');
+    const rows = await listLegendRows(page);
+    check(!rows.some((row) => row.entityId === state.owned), 'legend no longer lists the removed row');
+    const again = await removeLegendRow(page, state.owned);
+    check(!again.removed, 'removing again reports row not found instead of failing');
+    state.owned = null;
   },
   // SECTIONS-END (add new sections above this line)
 };
