@@ -14,7 +14,8 @@ export interface OwnershipArgs {
   readonly action: 'added' | 'updated' | null;
 }
 
-function titleMatches(title: string, name: string): boolean {
+/** Word-boundary match: the title equals the name or continues after it with a space (appended inputs). */
+export function titleMatches(title: string, name: string): boolean {
   return title === name || title.startsWith(`${name} `);
 }
 

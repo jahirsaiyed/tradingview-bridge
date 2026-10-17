@@ -36,3 +36,27 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout:
     clearTimeout(timer);
   }
 }
+
+export interface StableOptions<T> extends PollOptions {
+  /** Defaults to strict equality; an empty read (null/undefined) is never stable. */
+  readonly equals?: (a: T, b: T) => boolean;
+}
+
+/**
+ * Reads until two consecutive reads, `intervalMs` apart, are equal and non-empty; returns that value,
+ * or null when that did not happen within `timeoutMs`.
+ */
+export async function pollStable<T>(read: () => Promise<T | null | undefined>, options: StableOptions<T>): Promise<T | null> {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? realSleep;
+  const equals = options.equals ?? ((a: T, b: T) => a === b);
+  const deadline = now() + options.timeoutMs;
+  let previous = await read();
+  while (now() < deadline) {
+    await sleep(options.intervalMs ?? 250);
+    const next = await read();
+    if (previous != null && next != null && equals(previous, next)) return next;
+    previous = next;
+  }
+  return null;
+}
