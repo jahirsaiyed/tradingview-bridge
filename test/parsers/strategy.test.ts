@@ -91,6 +91,21 @@ describe('parseKeyStats', () => {
     expect(stats.profitableTrades).toBeNull();
   });
 
+  it('yields an honest null for a locale-ambiguous key-stats value, never a wrong number', () => {
+    const text =
+      'Total PnL +1.234,56 USD +3.91% Max drawdown 698.36 USD 6.32% ' +
+      'Profitable trades 34.01% 67/197 Profit factor 1,2,3 Performance';
+    const stats = parseKeyStats(text);
+    expect(stats.totalPnl).toBeNull();
+    expect(stats.profitFactor).toBeNull();
+    expect(stats.maxDrawdown).toEqual({ value: 698.36, unit: 'USD', percent: 6.32 });
+  });
+
+  it('never reads part of a decimal-comma profit factor (1.234,56 is null, not 1.234)', () => {
+    expect(parseKeyStats('Profit factor 1.234,56 Performance').profitFactor).toBeNull();
+    expect(parseKeyStats('Profit factor 12,5').profitFactor).toBeNull();
+  });
+
   it('returns nulls for missing sections', () => {
     expect(parseKeyStats('nothing here')).toEqual({
       totalPnl: null,
@@ -162,6 +177,12 @@ describe('parseTradeRows', () => {
 
   it('counts a row whose currency runs into a lowercase letter as unparsed', () => {
     const { trades, unparsed } = parseTradeRows([CLOSED_LOSS.replace(/USD /g, 'USDx ')]);
+    expect(trades).toEqual([]);
+    expect(unparsed).toBe(1);
+  });
+
+  it('counts a row with a locale-ambiguous required number as unparsed instead of misreading it', () => {
+    const { trades, unparsed } = parseTradeRows([CLOSED_LOSS.replace('1.11802 USD', '1,1,802 USD')]);
     expect(trades).toEqual([]);
     expect(unparsed).toBe(1);
   });

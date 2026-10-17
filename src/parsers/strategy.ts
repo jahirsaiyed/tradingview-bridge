@@ -31,7 +31,8 @@ const END_MARKERS = ['Performance'] as const;
 const MONEY = /(?<![\d,.])[+-]?[\d,]*\.?\d+(?:\s*[KMB](?=\s))?\s*[A-Z]{3,5}(?![A-Za-z])/;
 const PERCENT = /(?<![\d,.])([+-]?[\d,]*\.?\d+)\s*%/;
 const RATIO = /(?<![\d,.])(\d[\d,]*)\s*\/\s*(\d[\d,]*)/;
-const PLAIN = /([+-]?[\d,]*\.?\d+)/;
+// The whole numeric token (dots and commas included), so parseNumber rejects 1.234,56 instead of reading 1.234.
+const PLAIN = /([+-]?[\d.,]*\d)/;
 
 function sectionAfter(text: string, label: string): string | null {
   const start = text.indexOf(label);
@@ -119,11 +120,16 @@ function parseOpen(m: RegExpExecArray): Trade {
   };
 }
 
+// A required number that parseNumber rejected (ambiguous format) makes the whole row unparsed, never a null field.
+function hasRequiredNumbers(trade: Trade): boolean {
+  return [trade.entryPrice, trade.size, trade.netPnl.value].every((value) => Number.isFinite(value));
+}
+
 function parseTradeRow(text: string): Trade | null {
   const closed = CLOSED.exec(text);
-  if (closed) return parseClosed(closed);
-  const open = OPEN.exec(text);
-  return open ? parseOpen(open) : null;
+  const open = closed ? null : OPEN.exec(text);
+  const trade = closed ? parseClosed(closed) : open ? parseOpen(open) : null;
+  return trade !== null && hasRequiredNumbers(trade) ? trade : null;
 }
 
 export function parseTradeRows(rows: readonly string[]): { trades: Trade[]; unparsed: number } {

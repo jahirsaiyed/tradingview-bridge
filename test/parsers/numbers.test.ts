@@ -24,6 +24,36 @@ describe('parseNumber', () => {
     expect(parseNumber('')).toBeNull();
     expect(parseNumber('\u2014')).toBeNull();
   });
+  it('parses proper comma groups and numbers without separators', () => {
+    expect(parseNumber('1,234,567.89')).toBe(1234567.89);
+    expect(parseNumber('1,234')).toBe(1234);
+    expect(parseNumber('1234567.89')).toBe(1234567.89);
+    expect(parseNumber('-1,234.5')).toBe(-1234.5);
+    expect(parseNumber('+1,000')).toBe(1000);
+  });
+  it('expands K/M/B on grouped numbers and B', () => {
+    expect(parseNumber('1,234.5K')).toBe(1234500);
+    expect(parseNumber('2B')).toBe(2e9);
+    expect(parseNumber('10.43 K')).toBe(10430);
+  });
+  it('rejects locale-ambiguous or malformed separators instead of misreading them', () => {
+    expect(parseNumber('1,2,3')).toBeNull();
+    expect(parseNumber('1.234,56')).toBeNull();
+    expect(parseNumber('1 234,56')).toBeNull();
+    expect(parseNumber('1 234')).toBeNull();
+    expect(parseNumber(',5')).toBeNull();
+    expect(parseNumber('12,5')).toBeNull();
+    expect(parseNumber('1,2345')).toBeNull();
+    expect(parseNumber('1234,567')).toBeNull();
+    expect(parseNumber('1,234,56')).toBeNull();
+    expect(parseNumber('1,')).toBeNull();
+    expect(parseNumber('1.2.3')).toBeNull();
+  });
+  it('keeps full precision for long numbers (no rounding to 12 digits)', () => {
+    expect(parseNumber('123456789012345')).toBe(123456789012345);
+    expect(parseNumber('12345678901234.5')).toBe(12345678901234.5);
+    expect(parseNumber('1.23456789012345')).toBe(1.23456789012345);
+  });
 });
 
 describe('parseMoney', () => {
@@ -43,6 +73,11 @@ describe('parseMoney', () => {
   it('returns null without a unit', () => {
     expect(parseMoney('12')).toBeNull();
   });
+  it('returns null for an ambiguous amount instead of a wrong number', () => {
+    expect(parseMoney('1.234,56 USD')).toBeNull();
+    expect(parseMoney('1,2,3 USD')).toBeNull();
+    expect(parseMoney('1,234.56 USD')).toEqual({ value: 1234.56, unit: 'USD' });
+  });
 });
 
 describe('parsePercent', () => {
@@ -52,5 +87,8 @@ describe('parsePercent', () => {
   });
   it('returns null for a dash', () => {
     expect(parsePercent('\u2014')).toBeNull();
+  });
+  it('returns null for a decimal-comma percent', () => {
+    expect(parsePercent('12,5%')).toBeNull();
   });
 });

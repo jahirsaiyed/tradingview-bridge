@@ -2,6 +2,14 @@
 const MINUS_VARIANTS = /[\u2212\u2012\u2013]/g;
 const NBSP = /\u00a0/g;
 const SUFFIX: Readonly<Record<string, number>> = { K: 1e3, M: 1e6, B: 1e9 };
+/**
+ * Only unambiguous formats: optional sign, an integer part with no separators or with proper comma
+ * groups (1,234,567), an optional `.digits` decimal part and an optional K/M/B magnitude. A decimal
+ * comma (12,5), European grouping (1.234,56), space grouping (1 234) or stray commas (1,2,3) never match.
+ */
+const STRICT_NUMBER = /^([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([KMB])?$/i;
+/** Significant digits kept after a K/M/B multiplication, to drop floating-point noise (10.43 * 1000). */
+const MAGNITUDE_PRECISION = 15;
 
 export interface Money {
   readonly value: number;
@@ -12,12 +20,13 @@ export function normalizeText(input: string): string {
   return input.replace(NBSP, ' ').replace(MINUS_VARIANTS, '-').replace(/\s+/g, ' ').trim();
 }
 
+/** The number, or null for anything that is not in an unambiguous format (never a misread value). */
 export function parseNumber(raw: string): number | null {
-  const text = normalizeText(raw).replace(/,/g, '');
-  const match = /^([+-]?\d*\.?\d+)\s*([KMB])?$/i.exec(text);
+  const match = STRICT_NUMBER.exec(normalizeText(raw));
   if (!match) return null;
-  const multiplier = match[2] ? SUFFIX[match[2].toUpperCase()]! : 1;
-  return Number((Number(match[1]) * multiplier).toPrecision(12));
+  const value = Number(match[1]!.replace(/,/g, ''));
+  if (!match[2]) return value;
+  return Number((value * SUFFIX[match[2].toUpperCase()]!).toPrecision(MAGNITUDE_PRECISION));
 }
 
 /**
