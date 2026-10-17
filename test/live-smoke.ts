@@ -11,6 +11,7 @@ import { compileAndCollect } from '../src/driver/compile.js';
 import { extractScriptTitle } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
 import { readKeyStats, readTrades } from '../src/driver/strategyReader.js';
+import { readPineLogs } from '../src/driver/logsReader.js';
 
 type Section = (page: Page) => Promise<void>;
 
@@ -114,6 +115,33 @@ const sections: Record<string, Section> = {
     check(removal.removed, `strategy removed with the tester open (${removal.reason ?? 'ok'})`);
     check(!(await listLegendRows(page)).some((row) => row.entityId === state.owned), 'strategy row is gone');
     state.owned = null;
+  },
+  logs: async (page) => {
+    requireOverwriteFlag();
+    const ops = createPageLayoutOps(page);
+    await ensureLayout(ops, 'overlay');
+    try {
+      await writeAndVerify(page, SOURCES.strategy);
+      const report = await compileAndCollect(page, {
+        previousOwned: state.owned,
+        scriptTitle: extractScriptTitle(SOURCES.strategy),
+      });
+      check(report.errors.length === 0, 'strategy compiles');
+      // An unchanged result means the script is already on the chart; keep the recorded row.
+      state.owned = report.ownedEntityId ?? state.owned;
+      const result = await readPineLogs(page, ops);
+      console.log(JSON.stringify(result.lines.slice(-2)));
+      check(
+        result.lines.some((line) => line.text.includes('last bar close=')),
+        'log.info output of the strategy was read',
+      );
+      check(result.layoutRestored, 'overlay layout restored after reading logs');
+    } finally {
+      if (state.owned) {
+        await removeLegendRow(page, state.owned);
+        state.owned = null;
+      }
+    }
   },
   // SECTIONS-END (add new sections above this line)
 };
