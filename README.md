@@ -11,13 +11,23 @@ MCP server that lets Claude write a Pine Script into TradingView, compile it, an
    The bridge attaches to this Chrome over CDP, so it needs this dedicated, logged-in profile: a regular
    Chrome window without the debugging port will not work. Use the window for TradingView only: the
    debugging port gives full control of the profile.
-3. Open a **scratch** script in the Pine Editor. `tv_set_script` replaces the editor contents, but refuses
-   (`EDITOR_NOT_SCRATCH`) to overwrite a script the bridge did not write unless `overwriteExisting: true`.
+3. Open a **scratch** script in the Pine Editor that is not on the chart yet. `tv_set_script` replaces the
+   editor contents, but refuses (`EDITOR_NOT_SCRATCH`) to overwrite a script the bridge did not write unless
+   `overwriteExisting: true`. Known limitation: a compile acts on whichever chart row the editor's script is
+   linked to (TradingView's "Update on chart"), even a row the bridge did not add, so the scratch script must
+   not be one that is already applied to the chart.
 4. Register the server with Claude Code, replacing `<path-to-repo>` with the absolute path of this checkout
    (forward slashes work on Windows too):
    `claude mcp add tradingview -- node <path-to-repo>/node_modules/tsx/dist/cli.mjs <path-to-repo>/src/server.ts`
    Example: `claude mcp add tradingview -- node C:/src/tradingview-bridge/node_modules/tsx/dist/cli.mjs C:/src/tradingview-bridge/src/server.ts`
    This runs the project's own pinned `tsx` copy; avoid `npx tsx`, which can download an unpinned package.
+
+> **One bridge, one agent per dedicated Chrome.** Do not run two bridge processes (two MCP servers, two Claude
+> sessions, or a smoke run next to a server) against the same dedicated Chrome: they would interleave editor
+> keystrokes and clipboard use. The bridge takes a lock per CDP port (a file in the OS temp directory) and a
+> second process fails with `BRIDGE_BUSY` naming the process that holds it; `TV_ALLOW_SHARED_CHROME=1` skips
+> the lock for people who knowingly run two. Never run the live smoke while an agent is working in the editor:
+> the smoke replaces the editor contents.
 
 The server connects to Chrome lazily, on the first tool call, so it starts even when Chrome is not running.
 
@@ -31,7 +41,8 @@ Every tool returns JSON with `ok: true` plus its data, or `ok: false` with `erro
 
 Error codes: `NOT_CONNECTED`, `NOT_LOGGED_IN`, `NO_CHART`, `UNEXPECTED_DIALOG`, `LAYOUT_FAILED`,
 `TIMEOUT_COMPILE`, `TIMEOUT_REPORT`, `FOREIGN_REPORT`, `SESSION_DISCONNECTED`, `SELECTOR_MISSING`,
-`PASTE_MISMATCH`, `EDITOR_NOT_SCRATCH`, `NOT_OWNED`, `INVALID_ARGUMENT`, `REMOVE_FAILED`, `INTERNAL`.
+`PASTE_MISMATCH`, `EDITOR_NOT_SCRATCH`, `NOT_OWNED`, `INVALID_ARGUMENT`, `REMOVE_FAILED`, `BRIDGE_BUSY`
+(another bridge process holds the lock for this Chrome; `details.pid`, `details.lockFile`), `INTERNAL`.
 
 ### `tv_set_script`
 
@@ -51,11 +62,16 @@ pristine: use `overwriteExisting: true` after confirming with the owner.
 
 - `compiled`: `false` means compile errors (listed in `errors` with line, column and code). For an
   `unchanged` source nothing is compiled, so `compiled` reflects the last real compile of that exact source in
-  this session: after a failed compile it stays `false` and the remembered `errors` are returned again. With
-  no remembered compile for it (for example after `tv_open_chart`, `tv_remove_script`, a reload recovery or a
-  new MCP session), `compiled` is `true` only when the bridge's owned legend row is on the chart; otherwise
-  the result is `compiled: false, unchanged: true, unknownState: true` (the bridge cannot tell whether that
-  source compiles: change the source and compile again, or ask the owner).
+  this session: after a failed compile it stays `false` and the remembered `errors` are returned again.
+  Setting another source in between does not forget it (the memory is keyed by the exact source). There is no
+  usable remembered compile for that source after `tv_open_chart`, `tv_remove_script`, a reload recovery, in
+  a new MCP session, when the last real compile was of another source, or when a compile of that source was
+  triggered but the call failed before its outcome was read (its outcome is then unknown; a failure before the
+  compile was triggered changes nothing). In those cases `compiled` is `true` only when the bridge's owned
+  legend row is on the chart AND its status does not start with "Compilation error"; otherwise the result is
+  `compiled: false, unchanged: true, unknownState: true` (the bridge cannot tell whether that source compiles:
+  change the source and compile again, or ask the owner). TradingView's console reply "There is nothing to
+  update." (it refuses to recompile the text of its last compile) is reported as `unchanged` the same way.
 - `warnings`: compiler warnings. Best effort, unverified: the `Warning at L:C` console format has never been
   observed live, so an empty `warnings` list does not prove there were none.
 - `runtimeError`: a runtime error detected after the script settles on the chart.
@@ -81,14 +97,23 @@ that pane is collapsed (only a small `>_` button at the bottom-left of the edito
 opens it with one click on that button, waits (up to 3 s) until it is open, and leaves it open afterwards
 (every compile needs it). It never clicks the button while the pane is already open or opening. If the button
 is missing or the pane does not open, `tv_compile` fails with `SELECTOR_MISSING` (`details.selector`,
-`details.reason`: `missing` or `not-opened`) telling the owner to open the console pane, instead of timing out.
+`details.reason`: `missing`, `not-clickable` or `not-opened`) telling the owner to open the console pane,
+instead of timing out.
 
 Time budget: the whole `tv_compile` call (editor layout, compile, finding and settling the owned row, including
 re-picks) shares one 45 s budget; each wait uses at most the time left. Once the budget is used up the call fails
-with `TIMEOUT_COMPILE` (`details.reason: "deadline"`, `details.phase`: `outcome`, `error-rows`, `owned-row`,
-`row-settle` or `unchanged-settle`) instead of running past about a minute, the usual MCP client timeout. When
-the compile itself already ran, `details.action` and `details.ownedEntityId` say so and the bridge keeps owning
-that row (so `tv_remove_script` still works); call `tv_compile` again to read the result.
+with `TIMEOUT_COMPILE` (`details.reason: "deadline"`, `details.phase`: `before-trigger`, `outcome`,
+`error-rows`, `owned-row`, `row-settle` or `unchanged-settle`) instead of running past about a minute, the
+usual MCP client timeout. Each click or hover inside these phases is bounded by the time left as well (at most
+5 s, never an unbounded wait). What the phase means:
+- `before-trigger`: less than 20 s were left before Ctrl+Enter, so nothing was compiled (this reserve keeps a
+  compile from adding a row the bridge then cannot claim).
+- `outcome`: the compile was triggered but its console result was not read. The error names no row and the
+  bridge does not claim one: a row that compile may have added is not owned (`tv_remove_script` then fails
+  with `NOT_OWNED`). Call `tv_compile` again to read the result.
+- `owned-row`, `row-settle`, `error-rows`, `unchanged-settle`: the compile already ran; `details.action`
+  and `details.ownedEntityId` (when known) say so and the bridge keeps owning that row, so `tv_remove_script`
+  still works. Call `tv_compile` again to read the result.
 
 ### `tv_read_pine_logs`
 
@@ -127,7 +152,10 @@ best-effort until the numbers stop changing; key stats that keep changing for 15
 
 If the report does not render (a zero-trade strategy, or a stalled Strategy
 Tester) the call fails with `TIMEOUT_REPORT`. With `allowReload: true` (default `false`) it instead reloads
-the page, which drops unsaved chart state, re-applies the script and retries once.
+the page, which drops unsaved chart state, re-applies the script and retries once. If the re-applied source
+is unchanged and the reloaded row has a new entity id (so the compile state is unknown), the retry goes on only
+while a legend row matching the script name is on the chart; the bridge does not claim that row by its title
+(the report identity check still guards the numbers). Otherwise the recovery fails with `INTERNAL`.
 
 Time budget: one call shares a 50 s budget (without it the waits could add up to about 67 s: row settle 15 s,
 render 30 s, stable reads 15 s, strategy name 2 s, trades 5 s); each wait uses at most the time left. Once it is
@@ -200,6 +228,6 @@ including the bare default chart: no smoke row left, no other row removed, no ro
 The editor must hold a scratch script that is not already on the chart: TradingView applies a compile to the
 row the editor's script is linked to ("Update on chart"), even a row the bridge did not add.
 Only one process may drive the dedicated Chrome at a time: the driver serializes calls within its own process
-only, so a smoke run next to an MCP server (or another tool using the bridge) interleaves editor and clipboard
-actions.
+only. `connect()` therefore takes the per-port lock (see Setup), so a smoke run next to an MCP server fails with
+`BRIDGE_BUSY` instead of interleaving editor and clipboard actions.
 Spike evidence and UI findings: `spike/FINDINGS.md` (the probe scripts were removed; see git history).

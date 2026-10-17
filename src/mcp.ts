@@ -41,14 +41,20 @@ const COMPILE_DESCRIPTION =
   'runtimeChecked=true. Without an owned row, or when the row does not settle, the previously read ' +
   'runtimeError (if any) is returned with runtimeChecked=false. runtimeChecked=false means the runtime status was NOT read, ' +
   'not that the script is clean. With unchanged=true, compiled reflects the last compile of that exact ' +
-  'source in this session: after a failed compile it stays compiled=false and the cached errors are returned. ' +
-  'With no remembered compile, compiled=true only when the owned row is on the chart; otherwise ' +
+  'source in this session (setting another source in between does not forget it): after a failed compile it ' +
+  'stays compiled=false and the cached errors are returned. With no usable remembered compile (after ' +
+  'tv_open_chart, tv_remove_script, a reload recovery, a new session, a last real compile of another source, ' +
+  'or a compile of this source that failed after it was triggered), compiled=true only when the owned row is ' +
+  'on the chart and its status is not a compilation error; otherwise ' +
   'compiled=false and unknownState=true (state unknown: change the source or ask the owner). cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
   'the bridge removed after a failed compile. ' +
   'warnings are best effort and unverified (their console format has never been observed live): an empty ' +
   'warnings list does not prove there were none. The whole call shares one 45 s time budget: once it is used ' +
   'up the call fails with TIMEOUT_COMPILE (details.reason "deadline", details.phase = the phase reached; ' +
-  'details.action and details.ownedEntityId when the compile itself already ran) instead of running past about a minute. ' +
+  'details.action and details.ownedEntityId when the compile already ran and its row is known) instead of running ' +
+  'past about a minute. Phase before-trigger (less than 20 s left) means nothing was compiled; phase outcome ' +
+  'means the compile was triggered but its result was not read and no row is claimed. ' +
+  'TradingView\'s reply "There is nothing to update." is reported as unchanged. ' +
   'Results are read from the editor console pane: a collapsed pane is opened (one click) and left open; if it ' +
   'cannot be opened the call fails with SELECTOR_MISSING (ask the owner to open the Pine Editor console pane).';
 
