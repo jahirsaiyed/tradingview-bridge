@@ -19,6 +19,7 @@ export const SEL = {
   applyToChartButton: '[data-name="pine-dialog"] [data-qa-id="add-script-to-chart"]',
   reportTab: '[id="Strategy report"]',
   tradesTab: '[id="List of Trades"]',
+  pineLogsWidget: '.widgetbar-widget-pine_logs',
 } as const;
 
 export const TEXT = {
@@ -26,5 +27,8 @@ export const TEXT = {
   splitDialogTitle: 'Split the view?',
   splitConfirm: 'Move editor to split-view',
   pineLogsMenu: 'Pine logs',
+  // Rendered "no lines" states of the logs widget: runtime error / logging script without output yet /
+  // no logging script on the chart (the last two live-verified 2026-10-17).
+  pineLogsEmptyStates: ['No data', 'Waiting on logs', 'How to work with logs'],
   helpCenter: 'Help Center',
 } as const;

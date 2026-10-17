@@ -21,6 +21,13 @@ const OPEN_CHART_DESCRIPTION =
   'Navigate the chart to a symbol and/or interval (TradingView URL form, e.g. interval "60", "D"). ' +
   'Reloads the page, which closes the Pine Editor (the next tool call reopens it) and drops unsaved chart contents.';
 
+const PINE_LOGS_DESCRIPTION =
+  'Read log.info/log.warning/log.error output (per bar, timestamped). Briefly switches the editor to split view ' +
+  'and back; layoutRestored=false means the overlay layout could not be restored. Returns at most the last 500 ' +
+  'lines, each text cut to 2000 characters; lines=[] means the logs pane rendered with no output. Fails with ' +
+  'TIMEOUT_REPORT if the logs pane did not render within 8 s. Format floats explicitly in the script, e.g. ' +
+  'str.tostring(x, "#.#####"), since {0} rounds.';
+
 const COMPILE_DESCRIPTION =
   'Compile and add/update the script on the chart. Returns compile errors (line/column/code), warnings, ' +
   'and any runtime error detected after the script settles. compiled=false means errors. ' +
@@ -74,7 +81,7 @@ export function registerTools(server: McpServer, getDriver: GetDriver): void {
 
   server.tool(
     'tv_read_pine_logs',
-    'Read log.info/log.warning/log.error output (per bar, timestamped). Briefly switches the editor to split view and back. Format floats explicitly in the script, e.g. str.tostring(x, "#.#####"), since {0} rounds.',
+    PINE_LOGS_DESCRIPTION,
     {},
     () => runTool(getDriver, (d) => d.readPineLogs()),
   );

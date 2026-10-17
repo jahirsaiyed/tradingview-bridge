@@ -35,13 +35,23 @@ Every tool returns JSON with `ok: true` plus its data, or `ok: false` with `erro
 - `runtimeChecked`: `false` means the runtime status was NOT read. It does not mean the script is clean.
 - `cleanedErrorRows`: number of junk "Compilation error" legend rows the bridge removed after a failed compile.
 
+### `tv_read_pine_logs`
+
+Returns `lines` (`time`, `text`) and `layoutRestored`. It briefly switches the editor to split view to open
+the Pine logs pane and then back to overlay; `layoutRestored: false` means the overlay could not be restored.
+At most the last 500 lines are returned, each `text` cut to 2000 characters. `lines: []` means the pane
+rendered with no output; if the pane does not render within 8 s the call fails with `TIMEOUT_REPORT`
+(after restoring the layout).
+
 ### `tv_open_chart`
 
 Navigates to a symbol and/or interval by reloading the page. The reload closes the Pine Editor and drops
 unsaved chart contents. Other tools can be called right afterwards, because the editor-using tools
 (`tv_set_script`, `tv_get_script`, `tv_compile`, `tv_screenshot`, `tv_read_strategy_stats`,
-`tv_remove_script`, `tv_selftest`) re-establish the overlay editor layout, reopening the editor if needed,
-before they work. `tv_status` only reports the current layout.
+`tv_read_pine_logs`, `tv_remove_script`, `tv_selftest`) re-establish the overlay editor layout, reopening the
+editor if needed (`tv_read_pine_logs` passes through split view and ends in overlay). `tv_status` only
+reports the current layout. Every tool except `tv_status` fails with `NOT_LOGGED_IN` when TradingView shows
+its sign-in button.
 
 Not implemented yet: `tv_set_inputs`, `tv_read_data_window` (edit `input.*` defaults in the source
 and use `log.info` + `tv_read_pine_logs` instead).
