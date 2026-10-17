@@ -1,0 +1,78 @@
+import { describe, it, expect } from 'vitest';
+import { parseKeyStats, parseTradeRows } from '../../src/parsers/strategy.js';
+
+const KEY_STATS =
+  'Key stats Total PnL +391.32 USD +3.91% Max drawdown 698.36 USD 6.32% ' +
+  'Profitable trades 34.01% 67/197 Profit factor 1.131 Performance Cumulative PnL';
+
+describe('parseKeyStats', () => {
+  it('parses all four key stats', () => {
+    expect(parseKeyStats(KEY_STATS)).toEqual({
+      totalPnl: { value: 391.32, unit: 'USD', percent: 3.91 },
+      maxDrawdown: { value: 698.36, unit: 'USD', percent: 6.32 },
+      profitableTrades: { percent: 34.01, wins: 67, total: 197 },
+      profitFactor: 1.131,
+    });
+  });
+
+  it('handles unicode minus and splits across lines', () => {
+    const text = 'Total PnL\n\u2212120.50\nUSD\n\u22121.20%\nMax drawdown 5 USD 0.1% Profit factor 0.9';
+    expect(parseKeyStats(text).totalPnl).toEqual({ value: -120.5, unit: 'USD', percent: -1.2 });
+  });
+
+  it('returns nulls for missing sections', () => {
+    expect(parseKeyStats('nothing here')).toEqual({
+      totalPnl: null,
+      maxDrawdown: null,
+      profitableTrades: null,
+      profitFactor: null,
+    });
+  });
+});
+
+const OPEN_ROW =
+  '198Long Exit Entry Open Oct 15, 2026, 08:00 \u2014 1.12282 USD 9.25 K 10.38 KUSD +7.95 USD \u2014';
+const CLOSED_LOSS =
+  '197Long Exit Entry Oct 14, 2026, 17:00 Oct 13, 2026, 14:00 1.11291 USD 1.11802 USD 9.33 K 10.43 KUSD \u221247.67 USD \u22120.46%';
+const CLOSED_LOSS_2 =
+  '196Long Exit Entry Oct 9, 2026, 21:00 Oct 9, 2026, 00:00 1.11900 USD 1.12137 USD 9.32 K 10.45 KUSD \u221222.09 USD \u22120.21%';
+
+describe('parseTradeRows', () => {
+  it('parses a closed trade', () => {
+    const { trades, unparsed } = parseTradeRows([CLOSED_LOSS]);
+    expect(unparsed).toBe(0);
+    expect(trades[0]).toEqual({
+      number: 197,
+      side: 'Long',
+      entryTime: 'Oct 13, 2026, 14:00',
+      exitTime: 'Oct 14, 2026, 17:00',
+      entryPrice: 1.11802,
+      exitPrice: 1.11291,
+      size: 9330,
+      netPnl: { value: -47.67, unit: 'USD' },
+      returnPercent: -0.46,
+    });
+  });
+
+  it('parses an open trade with null exit fields', () => {
+    const { trades } = parseTradeRows([OPEN_ROW]);
+    expect(trades[0]).toEqual({
+      number: 198,
+      side: 'Long',
+      entryTime: 'Oct 15, 2026, 08:00',
+      exitTime: null,
+      entryPrice: 1.12282,
+      exitPrice: null,
+      size: 9250,
+      netPnl: { value: 7.95, unit: 'USD' },
+      returnPercent: null,
+    });
+  });
+
+  it('ignores header and empty rows, counts unparseable trade rows', () => {
+    const rows = ['Trade number Type Date and time Price Size Net PnL Return', '', OPEN_ROW, CLOSED_LOSS_2, '5Long garbage'];
+    const { trades, unparsed } = parseTradeRows(rows);
+    expect(trades.map((t) => t.number)).toEqual([198, 196]);
+    expect(unparsed).toBe(1);
+  });
+});
