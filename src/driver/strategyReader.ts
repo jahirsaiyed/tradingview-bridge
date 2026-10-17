@@ -75,6 +75,16 @@ export async function readTrades(
   page: Page,
   limit: number,
 ): Promise<{ trades: Trade[]; unparsed: number }> {
+  // The key stats rendered but the report container is not found: the container selector broke, which
+  // would otherwise read as an empty trade list.
+  const keyFactsShown = (await page.locator(SEL.reportKeyFacts).count()) > 0;
+  if (keyFactsShown && (await page.locator(SEL.reportRoot).count()) === 0) {
+    throw new TvError(
+      'SELECTOR_MISSING',
+      'The Strategy Tester report is open but its trades container was not found; the TradingView UI may have changed.',
+      { selector: SEL.reportRoot },
+    );
+  }
   await openTab(page, SEL.tradesTab, 'List of Trades');
   const rowLocator = page.locator(SEL.reportRoot).locator('[role="row"], tr');
   const rows = await pollUntil(

@@ -1,5 +1,4 @@
 import { TvError } from '../result.js';
-import { titleMatches } from './ownership.js';
 
 export interface ReportIdentity {
   /** The strategy name the Strategy Tester shows for the displayed report, null when it could not be read. */
@@ -8,12 +7,29 @@ export interface ReportIdentity {
   readonly matchesOwnedScript: boolean | null;
 }
 
-/** Same word-boundary comparison as legend ownership, against the title and the short title. */
+const ELLIPSIS = /(?:\.\.\.|\u2026)$/;
+
+/** nbsp to space, whitespace runs collapsed, trimmed, lower case. */
+function normalizeName(name: string): string {
+  return name.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** Equal after normalizing, or the shown name ends with an ellipsis and the script name starts with the rest. */
+function nameMatches(shown: string, name: string): boolean {
+  if (!ELLIPSIS.test(shown)) return shown === name;
+  const prefix = shown.replace(ELLIPSIS, '').trim();
+  return prefix.length > 0 && name.startsWith(prefix);
+}
+
+/**
+ * Compares the name the Strategy Tester footer shows with the owned script's title and short title.
+ * The footer shows the name without inputs, so a longer name (e.g. "Name v2") is a mismatch.
+ */
 export function matchesOwnedScript(shown: string | null, names: readonly string[]): boolean | null {
-  const name = shown?.trim() ?? '';
-  const known = names.filter((candidate) => candidate.length > 0);
-  if (name === '' || known.length === 0) return null;
-  return known.some((candidate) => titleMatches(name, candidate));
+  const name = normalizeName(shown ?? '');
+  const known = names.map(normalizeName).filter((candidate) => candidate.length > 0);
+  if (name.replace(ELLIPSIS, '').trim() === '' || known.length === 0) return null;
+  return known.some((candidate) => nameMatches(name, candidate));
 }
 
 /** The report identity, or FOREIGN_REPORT when the Strategy Tester shows another strategy. */

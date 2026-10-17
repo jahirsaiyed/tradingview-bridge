@@ -8,10 +8,23 @@ describe('matchesOwnedScript', () => {
     expect(matchesOwnedScript('TVBS', ['TV Bridge Smoke', 'TVBS'])).toBe(true);
   });
 
-  it('accepts appended inputs only after a word boundary', () => {
-    expect(matchesOwnedScript('TV Bridge Smoke 10 30', ['TV Bridge Smoke'])).toBe(true);
+  it('compares for equality: an extra word or a longer short title is a mismatch', () => {
+    expect(matchesOwnedScript('TV Bridge Smoke v2', ['TV Bridge Smoke'])).toBe(false);
+    expect(matchesOwnedScript('TV Bridge Smoke 10 30', ['TV Bridge Smoke'])).toBe(false);
+    expect(matchesOwnedScript('S Trend', ['S'])).toBe(false);
     expect(matchesOwnedScript('TV Bridge Smoker', ['TV Bridge Smoke'])).toBe(false);
-    expect(matchesOwnedScript('MACD', ['M'])).toBe(false);
+  });
+
+  it('normalizes nbsp, whitespace runs and case on both sides', () => {
+    expect(matchesOwnedScript('TV\u00a0Bridge  Smoke', ['tv bridge smoke'])).toBe(true);
+    expect(matchesOwnedScript('tv bridge smoke', ['TV\u00a0Bridge\tSmoke'])).toBe(true);
+  });
+
+  it('matches a name truncated with an ellipsis against a script name starting with the shown text', () => {
+    expect(matchesOwnedScript('TV Bridge Sm...', ['TV Bridge Smoke'])).toBe(true);
+    expect(matchesOwnedScript('TV Bridge Sm\u2026', ['TV Bridge Smoke'])).toBe(true);
+    expect(matchesOwnedScript('TV Other\u2026', ['TV Bridge Smoke'])).toBe(false);
+    expect(matchesOwnedScript('\u2026', ['TV Bridge Smoke'])).toBeNull();
   });
 
   it('is false for another strategy', () => {

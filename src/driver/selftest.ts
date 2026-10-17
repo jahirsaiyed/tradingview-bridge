@@ -21,6 +21,8 @@ const CHECKS: ReadonlyArray<{ name: string; selector: string; required: boolean 
   { name: 'tradesTab', selector: SEL.tradesTab, required: false },
   { name: 'reportKeyFacts', selector: SEL.reportKeyFacts, required: false },
   { name: 'reportStrategyName', selector: SEL.reportStrategyName, required: false },
+  // Optional: these exist only while a strategy report is open.
+  { name: 'reportRoot', selector: SEL.reportRoot, required: false },
 ];
 
 export function summarizeChecks(checks: readonly SelectorCheck[]): string[] {
