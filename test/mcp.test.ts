@@ -18,6 +18,7 @@ function fakeDriver(overrides: Partial<DriverApi> = {}): DriverApi {
       interval: '1 hour',
       layout: 'overlay',
       url: 'https://www.tradingview.com/chart/',
+      sessionDisconnected: false,
     }),
     openChart: notUsed,
     setScript: async (source) => ({ length: source.length }),
@@ -111,7 +112,11 @@ describe('MCP tools', () => {
       fakeDriver({
         readStrategyStats: async (args) => {
           seen.push(args);
-          return { keyStats: { totalPnl: null, maxDrawdown: null, profitableTrades: null, profitFactor: null } };
+          return {
+            keyStats: { totalPnl: null, maxDrawdown: null, profitableTrades: null, profitFactor: null },
+            strategyName: 'TV Bridge Smoke',
+            matchesOwnedScript: true,
+          };
         },
       }),
     );
@@ -131,6 +136,18 @@ describe('MCP tools', () => {
     for (const word of ['allowReload', 'unsaved chart state', 'tradesTruncated', 'rendered']) expect(stats).toContain(word);
     expect(describe('tv_compile')).toMatch(/unverified/);
     expect(describe('tv_selftest')).toContain('layoutError');
+  });
+
+  it('documents report identity, settling, runtime readiness and the session field', async () => {
+    const client = await connectClient(fakeDriver());
+    const { tools } = await client.listTools();
+    const describe = (name: string) => tools.find((t) => t.name === name)!.description!;
+    const stats = describe('tv_read_strategy_stats');
+    for (const word of ['strategyName', 'matchesOwnedScript', 'FOREIGN_REPORT', 'best-effort']) expect(stats).toContain(word);
+    const compile = describe('tv_compile');
+    expect(compile).toMatch(/point-in-time/);
+    expect(compile).toMatch(/raise its error later/);
+    expect(describe('tv_status')).toContain('sessionDisconnected');
   });
 
   it('converts a TvError into a failure result', async () => {

@@ -10,7 +10,8 @@ import { writeAndVerify } from '../src/driver/editor.js';
 import { compileAndCollect } from '../src/driver/compile.js';
 import { scriptTitles, sourcesEqual } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
-import { readKeyStats, readTrades } from '../src/driver/strategyReader.js';
+import { readKeyStats, readReportStrategyName, readTrades } from '../src/driver/strategyReader.js';
+import { matchesOwnedScript } from '../src/driver/reportIdentity.js';
 import { readPineLogs } from '../src/driver/logsReader.js';
 import { TvDriver } from '../src/driver/driver.js';
 import { TvError } from '../src/result.js';
@@ -129,6 +130,11 @@ const sections: Record<string, Section> = {
     check(stats.totalPnl !== null, 'Total PnL parsed');
     check(stats.profitFactor !== null, 'Profit factor parsed');
     check(stats.profitableTrades !== null && stats.profitableTrades.total > 0, 'Profitable trades parsed');
+    const shown = await readReportStrategyName(page);
+    check(shown === 'TV Bridge Smoke', `Strategy Tester names the smoke strategy (${shown})`);
+    check(matchesOwnedScript(shown, scriptTitles(SOURCES.strategy)) === true, 'report matches the owned script');
+    const second = await readKeyStats(page, 45_000);
+    check(JSON.stringify(second) === JSON.stringify(stats), 'two consecutive key stats reads agree');
     const { trades, unparsed } = await readTrades(page, 5);
     check(trades.length > 0, `trade list parsed (${trades.length} rows)`);
     check(unparsed === 0, `no unparsed trade rows (got ${unparsed})`);
@@ -198,6 +204,7 @@ const sections: Record<string, Section> = {
     try {
       const status = await driver.status();
       check(status.chartOpen && status.loggedIn, `status ok (${status.symbol}, ${status.interval}, ${status.layout})`);
+      check(status.sessionDisconnected === false, 'session guard does not fire on the normal chart');
 
       // A failed first compile makes TradingView add a junk row; that only happens while the script is not on the chart yet.
       // A fresh driver does not know the smoke text left in the editor by earlier runs: override the scratch guard once.
@@ -223,6 +230,10 @@ const sections: Record<string, Section> = {
       check((await driver.compile()).compiled, 'strategy compiled');
       const stats = await driver.readStrategyStats({ includeTrades: true, tradeLimit: 3 });
       check(stats.keyStats.totalPnl !== null && (stats.trades?.length ?? 0) > 0, 'strategy stats and trades read');
+      check(
+        stats.strategyName === 'TV Bridge Smoke' && stats.matchesOwnedScript === true,
+        `driver report identity (${stats.strategyName}, ${stats.matchesOwnedScript})`,
+      );
       check(
         typeof stats.tradesTruncated === 'boolean',
         `trade truncation reported (total ${stats.tradesTotal}, truncated ${stats.tradesTruncated})`,

@@ -31,6 +31,10 @@ const PINE_LOGS_DESCRIPTION =
 const COMPILE_DESCRIPTION =
   'Compile and add/update the script on the chart. Returns compile errors (line/column/code), warnings, ' +
   'and any runtime error detected after the script settles. compiled=false means errors. ' +
+  'runtimeChecked=true is a point-in-time read: the owned legend row stopped calculating and its status ' +
+  'stayed unchanged for 0.7 s (1.5 s when no badge is shown). A script can still raise its error later ' +
+  '(e.g. on a new bar); call tv_compile again (it returns unchanged plus the cached result) or read Pine logs. ' +
+  'If the row does not stop calculating within 10 s, runtimeChecked=false and a badge already shown is still returned. ' +
   'unchanged=true means the source already matched the chart, so recompiling is a no-op: the previous ' +
   'runtimeError is returned with runtimeChecked:false. runtimeChecked=false means the runtime status was NOT read, ' +
   'not that the script is clean. cleanedErrorRows is the number of junk "Compilation error" legend rows ' +
@@ -47,7 +51,11 @@ const SET_SCRIPT_DESCRIPTION =
 
 const STRATEGY_STATS_DESCRIPTION =
   'Read Strategy Tester key stats (Total PnL, Max drawdown, Profitable trades, Profit factor) and optionally ' +
-  'the most recent trades. The trade list is virtualized: only rendered rows can be read; tradesTotal is the ' +
+  'the most recent trades. strategyName is the strategy the Strategy Tester shows; matchesOwnedScript is ' +
+  'true/false when both it and the script the bridge set are known (null otherwise). When the Strategy Tester ' +
+  'shows another strategy the call fails with FOREIGN_REPORT and returns no numbers. The bridge first waits ' +
+  '(up to 15 s) until its strategy row stops recalculating, then requires two identical key-stats reads 0.7 s ' +
+  'apart; numbers right after a recompile are still best-effort until they stop changing. The trade list is virtualized: only rendered rows can be read; tradesTotal is the ' +
   'closed-trade count and tradesTruncated=true means fewer trades were returned than min(tradeLimit, tradesTotal). ' +
   'If the report does not render (e.g. zero trades, or a stalled Strategy Tester) the call fails with ' +
   'TIMEOUT_REPORT. allowReload: true (default false) then reloads the page, which drops unsaved chart state ' +
@@ -61,7 +69,9 @@ const SELFTEST_DESCRIPTION =
 function registerSessionTools(server: McpServer, getDriver: GetDriver): void {
   server.tool(
     'tv_status',
-    'Check the browser connection, login, open chart (symbol, interval) and editor layout (overlay/split/closed).',
+    'Check the browser connection, login, open chart (symbol, interval) and editor layout (overlay/split/closed). ' +
+      'sessionDisconnected=true means TradingView shows "Session disconnected" (account opened elsewhere): ' +
+      'every other tool then fails with SESSION_DISCONNECTED until the owner clicks Connect in the dedicated Chrome.',
     {},
     () => runTool(getDriver, (d) => d.status()),
   );

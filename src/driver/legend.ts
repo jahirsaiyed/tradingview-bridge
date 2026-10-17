@@ -19,13 +19,20 @@ export async function listLegendRows(page: Page): Promise<LegendRow[]> {
   );
 }
 
-export async function readStatusTitle(page: Page, entityId: string): Promise<string | null> {
+/** The owned row's calculation state and status badge title; null when the row is not on the chart. */
+export async function readRowStatus(
+  page: Page,
+  entityId: string,
+): Promise<{ loading: boolean; title: string | null } | null> {
   return page.evaluate(
     ([itemSelector, statusSelector, id]: string[]) => {
       const row = Array.from(document.querySelectorAll(itemSelector!)).find(
         (element) => element.getAttribute('data-entity-id') === id,
       );
-      return row?.querySelector(statusSelector!)?.getAttribute('title') ?? null;
+      if (!row) return null;
+      // Live-verified: data-status="loading" while the script calculates, "undefined" otherwise.
+      const loading = row.getAttribute('data-status') === 'loading';
+      return { loading, title: row.querySelector(statusSelector!)?.getAttribute('title') ?? null };
     },
     [SEL.legendItem, SEL.legendStatus, entityId],
   );

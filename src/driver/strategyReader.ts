@@ -2,20 +2,22 @@ import type { Page } from 'playwright-core';
 import { SEL, TEXT } from '../selectors.js';
 import { TvError } from '../result.js';
 import { parseKeyStats, parseTradeRows, type KeyStats, type Trade } from '../parsers/strategy.js';
-import { pollUntil } from './waits.js';
+import { pollStable, pollUntil } from './waits.js';
 
 const DEFAULT_REPORT_TIMEOUT_MS = 30_000;
+/** Two identical Key stats reads this far apart count as a settled report. */
+const STABLE_READ_INTERVAL_MS = 700;
+const STABLE_TIMEOUT_MS = 15_000;
 
-async function smallestTextContaining(page: Page, needles: readonly string[]): Promise<string | null> {
-  return page.evaluate((wanted: string[]) => {
-    let best: string | null = null;
-    for (const element of Array.from(document.querySelectorAll('div'))) {
-      const text = (element as HTMLElement).innerText;
-      if (!text || !wanted.every((needle) => text.includes(needle))) continue;
-      if (best === null || text.length < best.length) best = text;
-    }
-    return best;
-  }, [...needles]);
+/** The Key stats block text, or null until it renders with its labels. Scoped to the report container. */
+async function readKeyFactsText(page: Page): Promise<string | null> {
+  return page.evaluate(
+    ({ selector, labels }) => {
+      const text = (document.querySelector(selector) as HTMLElement | null)?.innerText ?? '';
+      return labels.every((label) => text.includes(label)) ? text : null;
+    },
+    { selector: SEL.reportKeyFacts, labels: [...TEXT.reportLabels] },
+  );
 }
 
 async function openTab(page: Page, selector: string, name: string): Promise<void> {
@@ -30,21 +32,43 @@ async function openTab(page: Page, selector: string, name: string): Promise<void
   await tab.click();
 }
 
+/**
+ * Key stats once the report rendered (within `timeoutMs`) AND two consecutive reads ~700 ms apart
+ * agree. A report that keeps changing for 15 s fails with TIMEOUT_REPORT (details.reason 'not-settled').
+ */
 export async function readKeyStats(
   page: Page,
   timeoutMs: number = DEFAULT_REPORT_TIMEOUT_MS,
 ): Promise<KeyStats> {
   await openTab(page, SEL.reportTab, 'Strategy report');
-  const text = await pollUntil(() => smallestTextContaining(page, TEXT.reportLabels), {
-    timeoutMs,
-    intervalMs: 500,
-  });
-  if (!text) {
+  const rendered = await pollUntil(() => readKeyFactsText(page), { timeoutMs, intervalMs: 500 });
+  if (!rendered) {
     throw new TvError('TIMEOUT_REPORT', `The Strategy Tester report did not render within ${timeoutMs} ms`, {
       timeoutMs,
     });
   }
-  return parseKeyStats(text);
+  const stable = await pollStable(() => readKeyFactsText(page), {
+    timeoutMs: STABLE_TIMEOUT_MS,
+    intervalMs: STABLE_READ_INTERVAL_MS,
+  });
+  if (!stable) {
+    throw new TvError(
+      'TIMEOUT_REPORT',
+      `The Strategy Tester key stats kept changing for ${STABLE_TIMEOUT_MS} ms (still recalculating). Retry shortly.`,
+      { timeoutMs: STABLE_TIMEOUT_MS, reason: 'not-settled' },
+    );
+  }
+  return parseKeyStats(stable);
+}
+
+/** The name of the strategy whose report the Strategy Tester shows (its footer tab), or null. */
+export async function readReportStrategyName(page: Page): Promise<string | null> {
+  const text = await page
+    .locator(SEL.reportStrategyName)
+    .first()
+    .textContent({ timeout: 2000 })
+    .catch(() => null);
+  return text?.trim() || null;
 }
 
 export async function readTrades(
@@ -52,9 +76,10 @@ export async function readTrades(
   limit: number,
 ): Promise<{ trades: Trade[]; unparsed: number }> {
   await openTab(page, SEL.tradesTab, 'List of Trades');
+  const rowLocator = page.locator(SEL.reportRoot).locator('[role="row"], tr');
   const rows = await pollUntil(
     async () => {
-      const texts = await page.locator('[role="row"], tr').allInnerTexts();
+      const texts = await rowLocator.allInnerTexts();
       return texts.some((text) => /^\s*\d+(Long|Short)/.test(text)) ? texts : null;
     },
     { timeoutMs: 5000, intervalMs: 500 },

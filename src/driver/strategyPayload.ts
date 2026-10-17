@@ -1,6 +1,6 @@
 import { TvError } from '../result.js';
 import type { KeyStats, Trade } from '../parsers/strategy.js';
-import type { StrategyPayload } from './types.js';
+import type { StrategyStats } from './types.js';
 
 export interface TradeRead {
   readonly trades: readonly Trade[];
@@ -14,7 +14,7 @@ export interface TradeRead {
  * AND fewer closed trades than tradesTotal: the trade table is virtualized, so only rendered rows
  * can be read. Without a known total it is never claimed.
  */
-export function strategyPayload(keyStats: KeyStats, read?: TradeRead): StrategyPayload {
+export function strategyPayload(keyStats: KeyStats, read?: TradeRead): StrategyStats {
   if (!read) return { keyStats };
   const tradesTotal = keyStats.profitableTrades?.total ?? null;
   const closed = read.trades.filter((trade) => trade.exitTime !== null).length;

@@ -11,7 +11,10 @@ import { removeLegendRow } from './legend.js';
 import { createMutex } from './mutex.js';
 import { createPageLayoutOps } from './pageLayoutOps.js';
 import { readPineLogs } from './logsReader.js';
-import { readKeyStats, readTrades } from './strategyReader.js';
+import { readKeyStats, readReportStrategyName, readTrades } from './strategyReader.js';
+import { assertOwnedReport } from './reportIdentity.js';
+import { waitForRowSettled } from './rowSettle.js';
+import { ensureSessionConnected, isSessionDisconnected } from './sessionGuard.js';
 import { ensureLoggedIn, isLoggedIn, navigateToChart, readChartLabel, takeScreenshot } from './chart.js';
 import { applyPageTimeouts, NAVIGATION_TIMEOUT_MS } from './connection.js';
 import { selftestAfterLayout } from './selftest.js';
@@ -29,6 +32,8 @@ import type {
 } from './types.js';
 
 const RELOAD_TIMEOUT_MS = 30_000;
+/** Bound for the owned strategy row to stop recalculating before the report is read. */
+const REPORT_SETTLE_TIMEOUT_MS = 15_000;
 
 const NOT_SCRATCH_MESSAGE =
   'The Pine Editor holds a script this bridge did not write in this session (it may be one of the ' +
@@ -107,6 +112,7 @@ export class TvDriver implements DriverApi {
 
   // Every tool except status passes through here (directly or via overlay()).
   private async ready(): Promise<void> {
+    await ensureSessionConnected(this.page);
     await ensureLoggedIn(this.page);
   }
 
@@ -124,6 +130,7 @@ export class TvDriver implements DriverApi {
       interval: label?.interval ?? null,
       layout: await this.layoutOps.detect(),
       url: this.page.url(),
+      sessionDisconnected: await isSessionDisconnected(this.page),
     };
   }
 
@@ -219,6 +226,7 @@ export class TvDriver implements DriverApi {
       return await this.collectStrategy(args);
     } catch (error) {
       if (!(error instanceof TvError) || error.code !== 'TIMEOUT_REPORT') throw error;
+      if (error.details?.reason === 'not-settled') throw error; // still recalculating: not a stall
       if (args.allowReload !== true) throw reportTimeoutError(error, 'reload-not-allowed');
       if (!this.lastSource) throw reportTimeoutError(error, 'no-script');
       await this.recoverFromStall(this.lastSource);
@@ -227,10 +235,14 @@ export class TvDriver implements DriverApi {
   }
 
   private async collectStrategy(args: StrategyArgs): Promise<StrategyPayload> {
+    // A recompile recalculates the report: wait (bounded) until the owned row stops loading first.
+    if (this.ownedEntityId) await waitForRowSettled(this.page, this.ownedEntityId, REPORT_SETTLE_TIMEOUT_MS);
     const keyStats = await readKeyStats(this.page);
-    if (!args.includeTrades) return strategyPayload(keyStats);
+    const names = this.lastSource ? scriptTitles(this.lastSource) : [];
+    const identity = assertOwnedReport(await readReportStrategyName(this.page), names);
+    if (!args.includeTrades) return { ...strategyPayload(keyStats), ...identity };
     const { trades, unparsed } = await readTrades(this.page, args.tradeLimit);
-    return strategyPayload(keyStats, { trades, unparsed, limit: args.tradeLimit });
+    return { ...strategyPayload(keyStats, { trades, unparsed, limit: args.tradeLimit }), ...identity };
   }
 
   // Observed once: the Strategy Tester spun forever until the page was reloaded.

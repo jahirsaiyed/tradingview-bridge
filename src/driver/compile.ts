@@ -5,16 +5,17 @@ import { parseRuntimeStatus, type RuntimeError } from '../parsers/runtime.js';
 import { readConsole, triggerCompile } from './editor.js';
 import { freshEntries } from './compileState.js';
 import { findNewCompileErrorRows } from './errorRows.js';
-import { listLegendRows, readStatusTitle, removeLegendRow } from './legend.js';
+import { listLegendRows, removeLegendRow } from './legend.js';
 import { pickOwnedEntity, retainPresentOwned, type LegendRow } from './ownership.js';
-import { pollUntil, realSleep } from './waits.js';
+import { waitForRowSettled, type RowSettleResult } from './rowSettle.js';
+import { pollUntil } from './waits.js';
 
 export interface CompileReport {
   readonly action: 'added' | 'updated' | null;
   readonly errors: readonly CompileProblem[];
   readonly warnings: readonly CompileProblem[];
   readonly runtimeError: RuntimeError;
-  /** True when an owned legend row was found and its status was read. */
+  /** True when an owned legend row was found, stopped calculating and its status was read. */
   readonly runtimeChecked: boolean;
   readonly ownedEntityId: string | null;
   /** Junk legend rows this compile created (failed compiles) and removed. */
@@ -24,28 +25,17 @@ export interface CompileReport {
   readonly elapsedMs: number;
 }
 
-const STATUS_READS = 3;
-const STATUS_INTERVAL_MS = 500;
-
-async function readStableStatus(page: Page, entityId: string): Promise<string | null> {
-  let last = await readStatusTitle(page, entityId);
-  for (let i = 1; i < STATUS_READS; i += 1) {
-    await realSleep(STATUS_INTERVAL_MS);
-    const next = await readStatusTitle(page, entityId);
-    const stable = next === last;
-    last = next;
-    if (stable) break;
-  }
-  return last;
-}
-
 export interface CompileArgs {
   readonly previousOwned: string | null;
   /** Declared script names (title and/or short title); empty when unknown. */
   readonly scriptTitles: readonly string[];
   readonly timeoutMs?: number;
-  readonly settleMs?: number;
+  /** Bound for the owned row to stop calculating before its runtime status is read. */
+  readonly runtimeTimeoutMs?: number;
 }
+
+const OWNED_ROW_TIMEOUT_MS = 5000;
+const RUNTIME_SETTLE_TIMEOUT_MS = 10_000;
 
 async function waitForOutcome(page: Page, baseline: number, timeoutMs: number): Promise<CompileOutcome> {
   const outcome = await pollUntil(
@@ -104,6 +94,41 @@ function buildReport(parts: ReportParts, startedAt: number): CompileReport {
   };
 }
 
+// A freshly added row can take a moment to appear in the legend, so look for it with a bounded poll.
+async function findOwnedRow(
+  page: Page,
+  rowsBefore: readonly LegendRow[],
+  args: CompileArgs,
+  action: 'added' | 'updated' | null,
+): Promise<string | null> {
+  const { scriptTitles, previousOwned } = args;
+  if (scriptTitles.length === 0) return null; // nothing could match: do not wait
+  return pollUntil(
+    async () => pickOwnedEntity({ before: rowsBefore, after: await listLegendRows(page), scriptTitles, previousOwned, action }),
+    { timeoutMs: OWNED_ROW_TIMEOUT_MS, intervalMs: 250 },
+  );
+}
+
+const OWNED_ROW_PICKS = 3;
+
+// The first add shows a transient legend row that TradingView replaces after ~0.6 s with the real one
+// (new entity id): when the picked row disappears, pick again (bounded).
+async function settleOwnedRow(
+  page: Page,
+  rowsBefore: readonly LegendRow[],
+  args: CompileArgs,
+  action: 'added' | 'updated' | null,
+): Promise<{ owned: string | null; status: RowSettleResult | null }> {
+  const timeoutMs = args.runtimeTimeoutMs ?? RUNTIME_SETTLE_TIMEOUT_MS;
+  for (let pick = 0; pick < OWNED_ROW_PICKS; pick += 1) {
+    const owned = await findOwnedRow(page, rowsBefore, args, action);
+    if (!owned) return { owned: null, status: null };
+    const status = await waitForRowSettled(page, owned, timeoutMs);
+    if (status.present) return { owned, status };
+  }
+  return { owned: null, status: null };
+}
+
 export async function compileAndCollect(page: Page, args: CompileArgs): Promise<CompileReport> {
   const startedAt = Date.now();
   const baseline = (await readConsole(page)).entries.length;
@@ -122,21 +147,14 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
     const ownedEntityId = retainPresentOwned(args.previousOwned, rowsBefore);
     return buildReport({ action, errors, warnings, ownedEntityId, cleanedErrorRows }, startedAt);
   }
-  await realSleep(args.settleMs ?? 2500);
-  const owned = pickOwnedEntity({
-    before: rowsBefore,
-    after: await listLegendRows(page),
-    scriptTitles: args.scriptTitles,
-    previousOwned: args.previousOwned,
-    action: outcome.action,
-  });
-  const statusTitle = owned ? await readStableStatus(page, owned) : null;
+  const { owned, status } = await settleOwnedRow(page, rowsBefore, args, outcome.action);
   return buildReport(
     {
       action: outcome.action,
       warnings: outcome.warnings,
-      runtimeError: parseRuntimeStatus(statusTitle),
-      runtimeChecked: owned !== null,
+      // Not settled: a badge already shown is still reported, but runtimeChecked stays false.
+      runtimeError: parseRuntimeStatus(status?.title ?? null),
+      runtimeChecked: status?.settled === true,
       ownedEntityId: owned,
     },
     startedAt,

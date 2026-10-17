@@ -3,6 +3,7 @@ import type { RuntimeError } from '../parsers/runtime.js';
 import type { KeyStats, Trade } from '../parsers/strategy.js';
 import type { PineLogLine } from '../parsers/logs.js';
 import type { LayoutMode } from './layout.js';
+import type { ReportIdentity } from './reportIdentity.js';
 import type { SelectorCheck } from './selftest.js';
 
 export interface StatusInfo {
@@ -12,6 +13,8 @@ export interface StatusInfo {
   readonly interval: string | null;
   readonly layout: LayoutMode;
   readonly url: string;
+  /** True when TradingView shows its full-page "Session disconnected" modal (account opened elsewhere). */
+  readonly sessionDisconnected: boolean;
 }
 
 export interface CompilePayload {
@@ -20,7 +23,10 @@ export interface CompilePayload {
   readonly errors: readonly CompileProblem[];
   readonly warnings: readonly CompileProblem[];
   readonly runtimeError: RuntimeError;
-  /** False when the runtime status was not read (unchanged source, or no owned legend row). */
+  /**
+   * True when the owned legend row stopped calculating and its status was read (a point-in-time read).
+   * False when it was not read: unchanged source, no owned row, or the row did not settle within 10 s.
+   */
   readonly runtimeChecked: boolean;
   /** Junk legend rows a failed compile created and the bridge removed. */
   readonly cleanedErrorRows: number;
@@ -29,7 +35,8 @@ export interface CompilePayload {
   readonly elapsedMs: number;
 }
 
-export interface StrategyPayload {
+/** The numbers part of the tv_read_strategy_stats payload. */
+export interface StrategyStats {
   readonly keyStats: KeyStats;
   readonly trades?: readonly Trade[];
   readonly unparsedTradeRows?: number;
@@ -38,6 +45,9 @@ export interface StrategyPayload {
   /** True when fewer trades were returned than min(tradeLimit, tradesTotal): only rendered rows can be read. */
   readonly tradesTruncated?: boolean;
 }
+
+/** Key stats (and trades) plus the strategy the report belongs to; see ReportIdentity. */
+export type StrategyPayload = StrategyStats & ReportIdentity;
 
 export interface StrategyArgs {
   readonly includeTrades: boolean;

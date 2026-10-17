@@ -19,6 +19,8 @@ const CHECKS: ReadonlyArray<{ name: string; selector: string; required: boolean 
   { name: 'legendToggler', selector: SEL.legendToggler, required: false },
   { name: 'reportTab', selector: SEL.reportTab, required: false },
   { name: 'tradesTab', selector: SEL.tradesTab, required: false },
+  { name: 'reportKeyFacts', selector: SEL.reportKeyFacts, required: false },
+  { name: 'reportStrategyName', selector: SEL.reportStrategyName, required: false },
 ];
 
 export function summarizeChecks(checks: readonly SelectorCheck[]): string[] {
