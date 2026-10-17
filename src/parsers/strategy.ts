@@ -25,7 +25,7 @@ export interface Trade {
 
 const LABELS = ['Total PnL', 'Max drawdown', 'Profitable trades', 'Profit factor'] as const;
 const END_MARKERS = ['Performance'] as const;
-const MONEY = /([+-]?[\d,]*\.?\d+)\s*([A-Z]{3})\b/;
+const MONEY = /([+-]?[\d,]*\.?\d+)\s*([A-Z]{3})(?![A-Za-z])/;
 const PERCENT = /([+-]?\d*\.?\d+)\s*%/;
 const RATIO = /(\d+)\s*\/\s*(\d+)/;
 const PLAIN = /([+-]?[\d,]*\.?\d+)/;

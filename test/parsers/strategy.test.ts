@@ -15,6 +15,18 @@ describe('parseKeyStats', () => {
     });
   });
 
+  it('parses real live innerText where currency and next number touch', () => {
+    const live =
+      'Total PnL\n+391.32USD+3.91%\nMax drawdown\n698.36USD6.32%\n' +
+      'Profitable trades\n34.01%67/197\nProfit factor\n1.131';
+    expect(parseKeyStats(live)).toEqual({
+      totalPnl: { value: 391.32, unit: 'USD', percent: 3.91 },
+      maxDrawdown: { value: 698.36, unit: 'USD', percent: 6.32 },
+      profitableTrades: { percent: 34.01, wins: 67, total: 197 },
+      profitFactor: 1.131,
+    });
+  });
+
   it('handles unicode minus and splits across lines', () => {
     const text = 'Total PnL\n\u2212120.50\nUSD\n\u22121.20%\nMax drawdown 5 USD 0.1% Profit factor 0.9';
     expect(parseKeyStats(text).totalPnl).toEqual({ value: -120.5, unit: 'USD', percent: -1.2 });

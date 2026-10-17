@@ -10,6 +10,7 @@ import { writeAndVerify } from '../src/driver/editor.js';
 import { compileAndCollect } from '../src/driver/compile.js';
 import { extractScriptTitle } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
+import { readKeyStats, readTrades } from '../src/driver/strategyReader.js';
 
 type Section = (page: Page) => Promise<void>;
 
@@ -79,6 +80,25 @@ const sections: Record<string, Section> = {
     const again = await removeLegendRow(page, state.owned);
     check(!again.removed, 'removing again reports row not found instead of failing');
     state.owned = null;
+  },
+  strategy: async (page) => {
+    requireOverwriteFlag();
+    await ensureLayout(createPageLayoutOps(page), 'overlay');
+    await writeAndVerify(page, SOURCES.strategy);
+    const report = await compileAndCollect(page, {
+      previousOwned: state.owned,
+      scriptTitle: extractScriptTitle(SOURCES.strategy),
+    });
+    check(report.errors.length === 0, 'strategy compiles');
+    state.owned = report.ownedEntityId;
+    const stats = await readKeyStats(page, 45_000);
+    console.log(JSON.stringify(stats));
+    check(stats.totalPnl !== null, 'Total PnL parsed');
+    check(stats.profitFactor !== null, 'Profit factor parsed');
+    check(stats.profitableTrades !== null && stats.profitableTrades.total > 0, 'Profitable trades parsed');
+    const { trades, unparsed } = await readTrades(page, 5);
+    check(trades.length > 0, `trade list parsed (${trades.length} rows)`);
+    check(unparsed === 0, `no unparsed trade rows (got ${unparsed})`);
   },
   // SECTIONS-END (add new sections above this line)
 };
