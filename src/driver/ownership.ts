@@ -1,6 +1,7 @@
 export interface LegendRow {
   readonly entityId: string;
   readonly title: string;
+  readonly status?: string | null;
 }
 
 export interface OwnershipArgs {

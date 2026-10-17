@@ -42,9 +42,15 @@ const sections: Record<string, Section> = {
     const title = extractScriptTitle(SOURCES.broken);
 
     await writeAndVerify(page, SOURCES.broken);
+    const rowsBeforeBroken = await listLegendRows(page);
     const bad = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
     check(bad.errors.length >= 1, 'broken source reports a compile error');
     check(bad.errors[0]!.line === 7, `error is on line 7 (got ${bad.errors[0]!.line})`);
+    check(bad.cleanedErrorRows >= 1, `failed compile junk row removed (${bad.cleanedErrorRows})`);
+    check(
+      (await listLegendRows(page)).length === rowsBeforeBroken.length,
+      'failed compile leaves no net legend rows',
+    );
 
     await writeAndVerify(page, SOURCES.valid);
     const good = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });

@@ -3,8 +3,9 @@ import { TvError } from '../result.js';
 import { analyzeCompile, type CompileOutcome, type CompileProblem } from '../parsers/console.js';
 import { parseRuntimeStatus, type RuntimeError } from '../parsers/runtime.js';
 import { readConsole, triggerCompile } from './editor.js';
-import { listLegendRows, readStatusTitle } from './legend.js';
-import { pickOwnedEntity } from './ownership.js';
+import { findNewCompileErrorRows } from './errorRows.js';
+import { listLegendRows, readStatusTitle, removeLegendRow } from './legend.js';
+import { pickOwnedEntity, type LegendRow } from './ownership.js';
 import { pollUntil, realSleep } from './waits.js';
 
 export interface CompileReport {
@@ -15,6 +16,8 @@ export interface CompileReport {
   /** True when an owned legend row was found and its status was read. */
   readonly runtimeChecked: boolean;
   readonly ownedEntityId: string | null;
+  /** Junk legend rows this compile created (failed compiles) and removed. */
+  readonly cleanedErrorRows: number;
   readonly elapsedMs: number;
 }
 
@@ -60,6 +63,29 @@ async function waitForOutcome(page: Page, baseline: number, timeoutMs: number): 
   return outcome;
 }
 
+const ERROR_ROW_POLL_MS = 4000;
+const ERROR_ROW_INTERVAL_MS = 300;
+
+// A failed compile makes TradingView add a placeholder legend row; remove only rows it just created.
+async function cleanupNewErrorRows(page: Page, rowsBefore: readonly LegendRow[]): Promise<number> {
+  const found = await pollUntil(
+    async () => {
+      const ids = findNewCompileErrorRows(rowsBefore, await listLegendRows(page));
+      return ids.length > 0 ? ids : null;
+    },
+    { timeoutMs: ERROR_ROW_POLL_MS, intervalMs: ERROR_ROW_INTERVAL_MS },
+  ).catch(() => null);
+  let cleaned = 0;
+  for (const id of found ?? []) {
+    try {
+      if ((await removeLegendRow(page, id)).removed) cleaned += 1;
+    } catch {
+      // A failed removal must not mask the compile result.
+    }
+  }
+  return cleaned;
+}
+
 export async function compileAndCollect(page: Page, args: CompileArgs): Promise<CompileReport> {
   const startedAt = Date.now();
   const baseline = (await readConsole(page)).entries.length;
@@ -67,6 +93,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
   await triggerCompile(page);
   const outcome = await waitForOutcome(page, baseline, args.timeoutMs ?? 15_000);
   if (outcome.errors.length > 0) {
+    const cleanedErrorRows = await cleanupNewErrorRows(page, rowsBefore);
     return {
       action: outcome.action,
       errors: outcome.errors,
@@ -74,6 +101,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
       runtimeError: { present: false },
       runtimeChecked: false,
       ownedEntityId: args.previousOwned,
+      cleanedErrorRows,
       elapsedMs: Date.now() - startedAt,
     };
   }
@@ -93,6 +121,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
     runtimeError: parseRuntimeStatus(statusTitle),
     runtimeChecked: owned !== null,
     ownedEntityId: owned,
+    cleanedErrorRows: 0,
     elapsedMs: Date.now() - startedAt,
   };
 }

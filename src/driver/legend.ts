@@ -6,14 +6,15 @@ import { pollUntil } from './waits.js';
 
 export async function listLegendRows(page: Page): Promise<LegendRow[]> {
   return page.evaluate(
-    ([itemSelector, titleSelector]: string[]) =>
+    ([itemSelector, titleSelector, statusSelector]: string[]) =>
       Array.from(document.querySelectorAll(itemSelector!))
         .map((element) => ({
           entityId: element.getAttribute('data-entity-id') ?? '',
           title: ((element.querySelector(titleSelector!) as HTMLElement | null)?.innerText ?? '').trim(),
+          status: element.querySelector(statusSelector!)?.getAttribute('title') ?? null,
         }))
         .filter((row) => row.entityId !== ''),
-    [SEL.legendItem, SEL.legendTitle],
+    [SEL.legendItem, SEL.legendTitle, SEL.legendStatus],
   );
 }
 
