@@ -12,6 +12,7 @@ import { extractScriptTitle } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
 import { readKeyStats, readTrades } from '../src/driver/strategyReader.js';
 import { readPineLogs } from '../src/driver/logsReader.js';
+import { readChartLabel, isLoggedIn, takeScreenshot } from '../src/driver/chart.js';
 
 type Section = (page: Page) => Promise<void>;
 
@@ -142,6 +143,23 @@ const sections: Record<string, Section> = {
         state.owned = null;
       }
     }
+  },
+  chart: async (page) => {
+    await ensureLayout(createPageLayoutOps(page), 'overlay');
+    const label = await readChartLabel(page);
+    check(label !== null, `chart label read (${label?.symbol} ${label?.interval})`);
+    check(await isLoggedIn(page), 'logged in to TradingView');
+    const png = await takeScreenshot(page);
+    check(png.length > 5000, `screenshot captured (${png.length} bytes)`);
+  },
+  cleanup: async (page) => {
+    if (!state.owned) {
+      console.log('nothing to clean up');
+      return;
+    }
+    const result = await removeLegendRow(page, state.owned);
+    check(result.removed, 'cleanup removed the bridge-owned script');
+    state.owned = null;
   },
   // SECTIONS-END (add new sections above this line)
 };
