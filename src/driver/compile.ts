@@ -18,6 +18,8 @@ export interface CompileReport {
   readonly ownedEntityId: string | null;
   /** Junk legend rows this compile created (failed compiles) and removed. */
   readonly cleanedErrorRows: number;
+  /** True when the source matched the last compiled version, so nothing was compiled. */
+  readonly unchanged: boolean;
   readonly elapsedMs: number;
 }
 
@@ -90,7 +92,19 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
   const startedAt = Date.now();
   const baseline = (await readConsole(page)).entries.length;
   const rowsBefore = await listLegendRows(page);
-  await triggerCompile(page);
+  if (!(await triggerCompile(page))) {
+    return {
+      action: null,
+      errors: [],
+      warnings: [],
+      runtimeError: { present: false },
+      runtimeChecked: false,
+      ownedEntityId: args.previousOwned,
+      cleanedErrorRows: 0,
+      unchanged: true,
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
   const outcome = await waitForOutcome(page, baseline, args.timeoutMs ?? 15_000);
   if (outcome.errors.length > 0) {
     const cleanedErrorRows = await cleanupNewErrorRows(page, rowsBefore);
@@ -102,6 +116,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
       runtimeChecked: false,
       ownedEntityId: args.previousOwned,
       cleanedErrorRows,
+      unchanged: false,
       elapsedMs: Date.now() - startedAt,
     };
   }
@@ -122,6 +137,7 @@ export async function compileAndCollect(page: Page, args: CompileArgs): Promise<
     runtimeChecked: owned !== null,
     ownedEntityId: owned,
     cleanedErrorRows: 0,
+    unchanged: false,
     elapsedMs: Date.now() - startedAt,
   };
 }

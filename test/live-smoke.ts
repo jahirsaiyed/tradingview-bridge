@@ -99,6 +99,21 @@ const sections: Record<string, Section> = {
     const { trades, unparsed } = await readTrades(page, 5);
     check(trades.length > 0, `trade list parsed (${trades.length} rows)`);
     check(unparsed === 0, `no unparsed trade rows (got ${unparsed})`);
+
+    // Strategy Tester is still open here: re-compile and removal must both cope with that.
+    const title = extractScriptTitle(SOURCES.strategy);
+    const same = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
+    check(same.unchanged && same.errors.length === 0, 'unchanged source is reported as unchanged, not a timeout');
+    await writeAndVerify(page, `${SOURCES.strategy}// recompile ${Date.now()}
+`);
+    const again = await compileAndCollect(page, { previousOwned: state.owned, scriptTitle: title });
+    check(again.errors.length === 0, 're-compile with the tester open has no errors');
+    check(again.action === 'updated', `re-compile updates the strategy (${again.action})`);
+    check(again.ownedEntityId === state.owned, 're-compile keeps the same owned legend row');
+    const removal = await removeLegendRow(page, state.owned!);
+    check(removal.removed, `strategy removed with the tester open (${removal.reason ?? 'ok'})`);
+    check(!(await listLegendRows(page)).some((row) => row.entityId === state.owned), 'strategy row is gone');
+    state.owned = null;
   },
   // SECTIONS-END (add new sections above this line)
 };

@@ -57,7 +57,14 @@ export async function readConsole(
   return { entries: parseConsoleEntries(text), problems: parseProblemCodes(text) };
 }
 
-export async function triggerCompile(page: Page): Promise<void> {
+/**
+ * Compiles the editor source. Returns false, without compiling, when the source is identical to
+ * the last compiled version: TradingView disables the apply button then and Ctrl+Enter is a no-op.
+ */
+export async function triggerCompile(page: Page): Promise<boolean> {
+  const apply = page.locator(SEL.applyToChartButton).first();
+  if ((await apply.count()) > 0 && (await apply.isDisabled({ timeout: 2000 }))) return false;
   await focusEditor(page);
   await page.keyboard.press('Control+Enter');
+  return true;
 }

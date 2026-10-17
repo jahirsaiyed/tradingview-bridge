@@ -15,6 +15,8 @@ export const SEL = {
   legendDelete: '[data-qa-id="legend-delete-action"]',
   legendToggler: '[data-qa-id="legend-toggler"]',
   legendSources: '[data-qa-id="legend-sources-wrapper"]',
+  bottomPanelToggle: '.layout__area--bottom [data-name="toggle-visibility-button"]',
+  applyToChartButton: '[data-name="pine-dialog"] [data-qa-id="add-script-to-chart"]',
   reportTab: '[id="Strategy report"]',
   tradesTab: '[id="List of Trades"]',
 } as const;

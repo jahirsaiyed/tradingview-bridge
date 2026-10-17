@@ -2,6 +2,7 @@ import type { Locator, Page } from 'playwright-core';
 import { SEL } from '../selectors.js';
 import type { LegendRow } from './ownership.js';
 import { TvError } from '../result.js';
+import { collapseBottomPanel, restoreBottomPanel } from './bottomPanel.js';
 import { pollUntil } from './waits.js';
 
 export async function listLegendRows(page: Page): Promise<LegendRow[]> {
@@ -45,6 +46,15 @@ async function recollapseLegend(legend: Locator, toggler: Locator): Promise<void
   }
 }
 
+const ROW_VISIBLE_TIMEOUT_MS = 5000;
+
+async function isRowVisible(row: Locator): Promise<boolean> {
+  return row.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  });
+}
+
 export async function removeLegendRow(
   page: Page,
   entityId: string,
@@ -69,7 +79,13 @@ export async function removeLegendRow(
     .evaluate((element) => /closed/.test(element.className));
   // A collapsed legend is covered by a canvas that blocks pointer events: expand it first.
   if (wasCollapsed) await toggler.click({ timeout: 5000 });
+  let collapsedPanel = false;
   try {
+    // With the Strategy Tester open, TradingView hides the newest rows under a "+N" counter.
+    if (!(await isRowVisible(row))) {
+      collapsedPanel = await collapseBottomPanel(page);
+      await pollUntil(() => isRowVisible(row), { timeoutMs: ROW_VISIBLE_TIMEOUT_MS, intervalMs: 200 });
+    }
     // The row's action buttons only receive pointer events while the row is hovered.
     await row.locator(SEL.legendTitle).first().hover({ timeout: 5000 });
     await row.locator(SEL.legendDelete).click({ timeout: 5000 });
@@ -80,6 +96,7 @@ export async function removeLegendRow(
   } finally {
     // Best effort: never let the restore mask the original error.
     if (wasCollapsed) await recollapseLegend(legend, toggler).catch(() => undefined);
+    if (collapsedPanel) await restoreBottomPanel(page).catch(() => undefined);
   }
   return { removed: true };
 }
