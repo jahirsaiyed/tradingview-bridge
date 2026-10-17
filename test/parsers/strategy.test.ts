@@ -187,6 +187,18 @@ describe('parseTradeRows', () => {
     expect(unparsed).toBe(1);
   });
 
+  it('counts a row with an ambiguous position size as unparsed (size is required)', () => {
+    const { trades, unparsed } = parseTradeRows([CLOSED_LOSS.replace('9.33 K', '9,3,3 K')]);
+    expect(trades).toEqual([]);
+    expect(unparsed).toBe(1);
+  });
+
+  it('counts a row with an ambiguous net PnL as unparsed (net PnL is required)', () => {
+    const { trades, unparsed } = parseTradeRows([CLOSED_LOSS.replace('\u221247.67 USD', '\u22124,7,67 USD')]);
+    expect(trades).toEqual([]);
+    expect(unparsed).toBe(1);
+  });
+
   it('ignores header and empty rows, counts unparseable trade rows', () => {
     const rows = ['Trade number Type Date and time Price Size Net PnL Return', '', OPEN_ROW, CLOSED_LOSS_2, '5Long garbage'];
     const { trades, unparsed } = parseTradeRows(rows);
