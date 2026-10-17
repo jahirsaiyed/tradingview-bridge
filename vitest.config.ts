@@ -32,6 +32,8 @@ export default defineConfig({
         'src/driver/sessionGuard.ts',
         'src/driver/rowSettle.ts',
         'src/driver/ownedSettle.ts',
+        'src/driver/consolePane.ts',
+        'src/driver/legendSnapshot.ts',
       ],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },

@@ -1,6 +1,7 @@
 // Live smoke test. Needs Chrome from scripts/launch-chrome.ps1, logged in to TradingView.
 // Sections that write to the editor replace its contents: open a scratch script first and set
-// TV_SMOKE_OVERWRITE_EDITOR=1. Usage: npm run smoke -- <section|all>
+// TV_SMOKE_OVERWRITE_EDITOR=1. Usage: npm run smoke -- <section...|all>; 'all' also checks that the legend
+// rows at the end equal the rows at the start.
 import type { Page } from 'playwright-core';
 import { connect } from '../src/driver/connection.js';
 import { createPageLayoutOps } from '../src/driver/pageLayoutOps.js';
@@ -10,6 +11,12 @@ import { writeAndVerify } from '../src/driver/editor.js';
 import { compileAndCollect } from '../src/driver/compile.js';
 import { scriptTitles, sourcesEqual } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
+import {
+  describeSnapshotDiff,
+  diffLegendSnapshots,
+  takeLegendSnapshot,
+  type LegendSnapshotRow,
+} from '../src/driver/legendSnapshot.js';
 import { readKeyStats, readReportStrategyName, readTrades } from '../src/driver/strategyReader.js';
 import { matchesOwnedScript } from '../src/driver/reportIdentity.js';
 import { readPineLogs } from '../src/driver/logsReader.js';
@@ -23,6 +30,13 @@ const UNKNOWN_SOURCE = `//@version=6
 indicator("TV Bridge Unknown Text")
 plot(open)
 `;
+
+// TradingView answers "There is nothing to update." (no errors) when the text equals its last compile, e.g. a
+// broken compile left by an earlier run: a unique trailing comment makes every broken compile a real one.
+function freshBroken(): string {
+  return `${SOURCES.broken}// run ${Date.now()}
+`;
+}
 
 // tv_set_script must refuse text the bridge did not write, and accept it with overwriteExisting.
 async function scratchGuardCheck(page: Page, driver: TvDriver): Promise<void> {
@@ -86,7 +100,7 @@ const sections: Record<string, Section> = {
     await ensureLayout(createPageLayoutOps(page), 'overlay');
     const titles = scriptTitles(SOURCES.broken);
 
-    await writeAndVerify(page, SOURCES.broken);
+    await writeAndVerify(page, freshBroken());
     const rowsBeforeBroken = await listLegendRows(page);
     const bad = await compileAndCollect(page, { previousOwned: state.owned, scriptTitles: titles });
     check(bad.errors.length >= 1, 'broken source reports a compile error');
@@ -218,7 +232,7 @@ const sections: Record<string, Section> = {
 
       // A failed first compile makes TradingView add a junk row; that only happens while the script is not on the chart yet.
       // A fresh driver does not know the smoke text left in the editor by earlier runs: override the scratch guard once.
-      await driver.setScript(SOURCES.broken, { overwriteExisting: true });
+      await driver.setScript(freshBroken(), { overwriteExisting: true });
       const broken = await driver.compile();
       check(!broken.compiled && broken.errors.length >= 1, `broken source fails (${broken.errors.length} errors)`);
       check(broken.cleanedErrorRows >= 1, `failed compile junk rows cleaned (${broken.cleanedErrorRows})`);
@@ -273,17 +287,35 @@ const sections: Record<string, Section> = {
   // SECTIONS-END (add new sections above this line)
 };
 
+// The chart's own rows differ per layout (the owner's indicators, or a bare default chart), so the run compares
+// against the rows it found instead of a fixed list.
+async function recordLegend(page: Page): Promise<LegendSnapshotRow[]> {
+  const snapshot = takeLegendSnapshot(await listLegendRows(page));
+  console.log(`legend at start: ${snapshot.map((row) => `${row.entityId} "${row.title}"`).join(', ') || 'no rows'}`);
+  return snapshot;
+}
+
+async function assertLegendUnchanged(page: Page, start: readonly LegendSnapshotRow[]): Promise<void> {
+  const diff = diffLegendSnapshots(start, takeLegendSnapshot(await listLegendRows(page)));
+  const problem = describeSnapshotDiff(diff);
+  check(problem === null, `legend rows equal the start snapshot (${problem ?? `${start.length} rows`})`);
+}
+
 async function main(): Promise<void> {
-  const name = process.argv[2] ?? 'all';
+  // Several sections (space or comma separated) run in one process, so e.g. 'compile remove' shares the owned row.
+  const requested = process.argv.slice(2).flatMap((arg) => arg.split(',')).filter((arg) => arg !== '');
+  const name = requested.length === 0 ? 'all' : requested.join(',');
   const { browser, page } = await connect();
   try {
-    const names = name === 'all' ? Object.keys(sections) : [name];
+    const names = name === 'all' ? Object.keys(sections) : requested;
+    const start = name === 'all' ? await recordLegend(page) : null;
     for (const section of names) {
       const run = sections[section];
       if (!run) throw new Error(`Unknown section: ${section}. Known: ${Object.keys(sections).join(', ')}`);
       console.log(`--- ${section}`);
       await run(page);
     }
+    if (start) await assertLegendUnchanged(page, start);
     console.log('SMOKE PASSED');
   } finally {
     await browser.close();
