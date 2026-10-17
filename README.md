@@ -40,6 +40,12 @@ calls cannot interleave their clipboard use. Before pasting, the bridge reads th
 empty editor, text it pasted itself in this session, or TradingView's pristine new-script template. Anything
 else (for example one of your saved scripts that TradingView restored after a reload) fails with
 `EDITOR_NOT_SCRATCH`. Pass `overwriteExisting: true` only after the owner confirms that script may be replaced.
+When the editor contents cannot be read, `tv_set_script` also refuses with `EDITOR_NOT_SCRATCH` (it never
+assumes the editor is empty). The pristine templates are `indicator("My script")` + `plot(close)` and a single
+`strategy("My strategy")` or `strategy("My strategy", overlay=true, margin_long=100, margin_short=100)` line,
+optionally under the license header and `//@version=N`; any other line, including any other comment, counts as
+user content. TradingView's real multi-line new-strategy template is therefore probably not treated as
+pristine: use `overwriteExisting: true` after confirming with the owner.
 
 ### `tv_compile` result fields
 
