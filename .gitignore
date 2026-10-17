@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.chrome-profile/
+spike/.chrome-profile/
+spike/node_modules/
+*.png
+.env

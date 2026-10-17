@@ -1,0 +1,103 @@
+# TradingView Bridge: design
+
+Status: draft for review. Evidence base: `spike/FINDINGS.md` (live probes against TradingView on 2026-10-17).
+
+## 1. Goal
+
+Let Claude (via Claude Code) write a Pine Script into TradingView's Pine Editor, compile it, and verify the result in the real browser: compile errors, runtime errors, chart visuals, Strategy Tester stats and trades, and per-bar values. Claude then fixes the script and repeats.
+
+## 2. Scope
+
+**In scope (autonomous actions):** edit the Pine Editor, save, add/update/remove *the script Claude added*, change that script's inputs, change symbol/timeframe, take screenshots, read stats/logs.
+
+**Out of scope, by construction (no code path exists):** alerts, orders/trading/broker panels, watchlists, drawings, publishing scripts, touching indicators Claude did not add.
+
+**Non-goals:** a general TradingView automation library; running unattended; multi-user use; the Chrome-extension driver (kept possible, not designed now).
+
+## 3. Architecture
+
+```
+Claude Code --stdio MCP--> MCP server (Node/TS, src/server.ts)
+                               |
+                          Driver (src/driver/)  -- Playwright connectOverCDP
+                               |                    to dedicated Chrome on 127.0.0.1:9222
+                          selectors.ts (per layout) + parsers/ (pure functions)
+```
+
+- **Dedicated Chrome profile**, launched by `scripts/launch-chrome.ps1` with `--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1` and its own `--user-data-dir`. The user logs in to TradingView once. The profile is used for TradingView only (the CDP port gives full control of that browser).
+- **MCP server** exposes tools and validates arguments; it holds no TradingView knowledge.
+- **Driver** owns page interaction: layout management, waits, clicks, clipboard paste. Tool handlers call the driver, never Playwright directly. The boundary stays thin; no abstraction is built for a second driver until one exists.
+- **selectors.ts** holds every selector, keyed by layout mode. **parsers/** turn DOM text into typed data and contain no I/O.
+
+## 4. Tools
+
+All return `{ok: true, ...}` or `{ok: false, error: {code, message, details}}`. None blocks indefinitely.
+
+| Tool | Behavior |
+|---|---|
+| `tv_status` | Connected? logged in? chart open? Returns symbol, timeframe, layout mode (`overlay`/`split`), editor open. |
+| `tv_open_chart` | Set symbol and/or timeframe. |
+| `tv_set_script` | Paste source into the editor (clipboard). Verifies by reading back. |
+| `tv_get_script` | Read the editor source (select-all + copy; normalises `\r\n`). |
+| `tv_compile` | Trigger compile/add (`Ctrl+Enter`). Returns `{compiled, action: "added"|"updated", errors[{line,column,message,code?}], warnings[], runtimeError: {present, code?, raw?}}` (`compiled` is false when there are errors; the tool-level `ok` means the call itself worked). |
+| `tv_set_inputs` | **Deferred** (see section 10). Set input values of the script Claude added, from a name-to-value map. |
+| `tv_screenshot` | Chart screenshot. Ensures overlay layout first so the chart is wide. |
+| `tv_read_pine_logs` | Per-bar `log.*` output as `[{time, text}]` (level markup not yet observed). Switches to split layout, reads, returns to overlay. |
+| `tv_read_strategy_stats` | Key stats parsed into numbers with units (Total PnL, Max drawdown, Profitable trades, Profit factor), plus optionally the trade list (default last 50 rows). |
+| `tv_read_data_window` | **Deferred** (see section 10). Indicator values at the latest bar only (per-bar reads go through Pine logs). |
+| `tv_remove_script` | Remove only the script Claude added in this session. |
+| `tv_selftest` | Check every selector in the current layout resolves and key labels still match; report failures by name. |
+
+## 5. Verify loop (guidance to Claude, not enforced)
+
+1. `tv_set_script` then `tv_compile`.
+2. Errors present: fix and repeat. Stop and report after 5 attempts.
+3. Compiled: check `runtime_error`, then `tv_screenshot`; for numeric checks add `log.info` with explicit formatting (e.g. `str.tostring(x, "#.#####")`, since `{0}` rounds) and call `tv_read_pine_logs`.
+4. Strategies: `tv_read_strategy_stats`. Any input tuning must be re-checked on a different symbol or date range and both results reported (guards against curve-fitting). Cap tuning iterations.
+
+## 6. Key behaviors and rules (each backed by a spike result)
+
+- **Writing source:** clipboard paste only. `insertText`/typing corrupts indentation via Monaco auto-indent. `window.monaco` is not exposed.
+- **Staleness:** record the console line count before triggering compile; accept a result only from lines after the trigger. `Added to chart.` vs `Updated on chart.` distinguishes first add from re-run.
+- **Runtime errors are not in the console.** After a compile settles (about 2 s), read `[data-qa-id="legend-source-item-status"]` inside the script's legend row; its `title` is e.g. `Runtime error: RE10045 · Opened in Pine Editor` (the error code plus a UI hint; the underlying message text is not in the title; no hover needed). Pine logs show "No data" in that case.
+- **Layouts:** overlay container `[data-name="pine-dialog"]`; split container `#pine-editor-dialog`. Every tool first calls `ensureLayout(required)`. The toggle is the button titled "Move split-view to overlay" or "Move overlay to split-view". Pine logs requires split (TradingView shows a "Split the view?" dialog, accepted only when we initiated it). Screenshots require overlay.
+- **Stable hooks:** Strategy Tester `role="tab"` ids (`Strategy report`, `List of Trades`, ...). Most toolbar buttons are unlabeled; prefer keyboard shortcuts and scoped locators.
+- **Readiness and recovery:** every wait has an explicit condition and timeout. If the Strategy Tester shows a spinner past the timeout (observed once; fixed by page reload), reload once, re-establish layout, retry once, then return `TIMEOUT_REPORT`.
+- **Parsing:** Unicode minus (U+2212), thousands separators, `USD` suffixes, `%` values, and U+00A0 in rendered editor text are all handled in parsers.
+- **Removal safety:** `tv_remove_script` locates the `legend-source-item` row whose `legend-source-title` equals the script Claude added, expands that pane's legend if collapsed (a collapsed legend is covered by a canvas and blocks pointer events), clicks the row's `legend-delete-action` with a real Playwright click (a synthetic DOM `.click()` does not remove), then polls until the row is gone. Indicators without `overlay=true` live in their own lower pane with their own legend. Never use positional clicks on the chart.
+- **Never right-click the chart or click blind coordinates.** The chart context menu contains alert and order entries.
+
+## 7. Errors
+
+Typed codes: `NOT_CONNECTED`, `NOT_LOGGED_IN`, `NO_CHART`, `UNEXPECTED_DIALOG` (includes dialog title; e.g. Help Center, upgrade prompts), `LAYOUT_FAILED`, `TIMEOUT_COMPILE`, `TIMEOUT_REPORT`, `SELECTOR_MISSING` (names the selector), `PASTE_MISMATCH`, `NOT_OWNED` (target script was not added by Claude), `INVALID_ARGUMENT`, `REMOVE_FAILED`, `INTERNAL` (unexpected exception). A dialog we did not trigger is never auto-accepted.
+
+## 8. Security
+
+CDP bound to `127.0.0.1`; dedicated profile; no secrets stored or logged; tool inputs validated; Pine source is only ever written to the editor. The tool-surface guardrails are soft against a caller with generic shell or Playwright access, so profile isolation is the real boundary. TradingView's terms on automated access are unreviewed; keep use low-frequency, single-session and personal, and review the terms before relying on this.
+
+## 9. Testing
+
+- **Unit:** parsers against saved real-DOM text fixtures (console lines, Key stats, trade rows with Unicode minus, Pine log lines, runtime-error badge). Cover 80%+ of parsers and layout/wait logic via injected fakes.
+- **Selector self-test:** `tv_selftest`, run before any build session and in CI-less manual smoke runs.
+- **Live smoke script** (manual, needs the logged-in profile): paste, compile OK, compile error, runtime error, read stats, read logs, remove script, restore layout. No fake TradingView server, because it would not catch real UI drift.
+
+## 10. Known risks and unverified items
+
+- UI drift: TradingView ships UI changes; selectors are centralised and self-tested.
+- `tv_set_inputs` and `tv_read_data_window` depend on dialog/DOM structure not yet probed; they are deferred to a follow-up plan (Claude can change inputs by editing `input.*` defaults in the source and recompiling, and per-bar values come from Pine logs).
+- Zero-trade strategies, non-default timeframes/date ranges, and non-USD symbols are untested.
+- Whether layout changes (split-view) persist to the user's saved TradingView layout is unknown.
+- First-run stall of the Strategy Tester was resolved only by manual reload; the automated reload-retry is untested.
+
+## 11. Project layout
+
+```
+src/server.ts           MCP tools, arg validation
+src/driver/             playwright driver, layout manager, waits
+src/selectors.ts        selectors per layout
+src/parsers/            pure parsing functions
+scripts/launch-chrome.ps1
+test/parsers/           fixtures + unit tests
+test/live-smoke.mjs     manual end-to-end script
+spike/                  throwaway probes + FINDINGS.md (reference only)
+```
