@@ -12,6 +12,8 @@ import { extractScriptTitle } from '../src/parsers/source.js';
 import { listLegendRows, removeLegendRow } from '../src/driver/legend.js';
 import { readKeyStats, readTrades } from '../src/driver/strategyReader.js';
 import { readPineLogs } from '../src/driver/logsReader.js';
+import { TvDriver } from '../src/driver/driver.js';
+import { TvError } from '../src/result.js';
 import { readChartLabel, isLoggedIn, takeScreenshot } from '../src/driver/chart.js';
 
 type Section = (page: Page) => Promise<void>;
@@ -160,6 +162,50 @@ const sections: Record<string, Section> = {
     const result = await removeLegendRow(page, state.owned);
     check(result.removed, 'cleanup removed the bridge-owned script');
     state.owned = null;
+  },
+  driver: async (page) => {
+    requireOverwriteFlag();
+    const driver = new TvDriver(page);
+    try {
+      const status = await driver.status();
+      check(status.chartOpen && status.loggedIn, `status ok (${status.symbol}, ${status.interval}, ${status.layout})`);
+
+      // A failed first compile makes TradingView add a junk row; that only happens while the script is not on the chart yet.
+      await driver.setScript(SOURCES.broken);
+      const broken = await driver.compile();
+      check(!broken.compiled && broken.errors.length >= 1, `broken source fails (${broken.errors.length} errors)`);
+      check(broken.cleanedErrorRows >= 1, `failed compile junk rows cleaned (${broken.cleanedErrorRows})`);
+
+      await driver.setScript(SOURCES.valid);
+      check((await driver.getScript()).source.includes('TV Bridge Smoke'), 'set/get script round trip');
+      const compiled = await driver.compile();
+      check(compiled.compiled && !compiled.runtimeError.present, `compile ok (${compiled.action ?? 'unchanged'})`);
+      const again = await driver.compile();
+      check(again.unchanged && again.compiled, 'second compile of the same source is unchanged and compiled');
+
+      await driver.setScript(SOURCES.runtimeError);
+      const runtime = await driver.compile();
+      check(runtime.compiled && runtime.runtimeChecked, 'runtime-error source compiled and status read');
+      check(runtime.runtimeError.present, `runtime error surfaced (${runtime.runtimeError.code})`);
+
+      await driver.setScript(SOURCES.strategy);
+      check((await driver.compile()).compiled, 'strategy compiled');
+      const stats = await driver.readStrategyStats({ includeTrades: true, tradeLimit: 3 });
+      check(stats.keyStats.totalPnl !== null && (stats.trades?.length ?? 0) > 0, 'strategy stats and trades read');
+      const logs = await driver.readPineLogs();
+      check(logs.lines.some((line) => line.text.includes('last bar close=')) && logs.layoutRestored, 'pine logs read');
+
+      const selftest = await driver.selftest();
+      check(selftest.failures.length === 0, `selftest has no required failures (${selftest.failures.join(',') || 'none'})`);
+    } finally {
+      await driver.removeScript().then(
+        (removed) => console.log(`cleanup removeScript removed=${removed.removed}`),
+        (error: unknown) => {
+          if (!(error instanceof TvError && error.code === 'NOT_OWNED')) throw error;
+        },
+      );
+    }
+    check((await driver.status()).layout === 'overlay', 'layout is overlay at the end');
   },
   // SECTIONS-END (add new sections above this line)
 };
