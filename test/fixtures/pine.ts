@@ -14,7 +14,7 @@ plot(f(close) +)
   runtimeError: `//@version=6
 indicator("TV Bridge Smoke")
 a = array.new_float(1, 1.0)
-if barstate.islast
+if barstate.islastconfirmedhistory
     log.info("x={0}", array.get(a, 5))
 plot(close)
 `,
@@ -26,7 +26,7 @@ if ta.crossover(fast, slow)
     strategy.entry("L", strategy.long)
 if ta.crossunder(fast, slow)
     strategy.close("L")
-if barstate.islast
+if barstate.islastconfirmedhistory
     log.info("last bar close={0} fast={1}", close, fast)
 plot(fast)
 plot(slow)

@@ -65,6 +65,15 @@ describe('MCP tools', () => {
     );
   });
 
+  it('documents the Pine logs live-bar trap and emptyHint', async () => {
+    const client = await connectClient(fakeDriver());
+    const { tools } = await client.listTools();
+    const logs = tools.find((t) => t.name === 'tv_read_pine_logs')!.description!;
+    for (const word of ['barstate.islast', 'barstate.islastconfirmedhistory', 'emptyHint', 'layoutRestored']) {
+      expect(logs).toContain(word);
+    }
+  });
+
   it('documents the compile result fields and the open_chart reload', async () => {
     const client = await connectClient(fakeDriver());
     const { tools } = await client.listTools();

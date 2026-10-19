@@ -120,8 +120,14 @@ usual MCP client timeout. Each click or hover inside these phases is bounded by 
 Returns `lines` (`time`, `text`) and `layoutRestored`. It briefly switches the editor to split view to open
 the Pine logs pane and then back to overlay; `layoutRestored: false` means the overlay could not be restored.
 At most the last 500 lines are returned, each `text` cut to 2000 characters. `lines: []` means the pane
-rendered with no output; if the pane does not render within 8 s the call fails with `TIMEOUT_REPORT`
-(after restoring the layout).
+rendered with no output, and then an `emptyHint` string explains why (present only when `lines` is empty);
+if the pane does not render within 8 s the call fails with `TIMEOUT_REPORT` (after restoring the layout).
+
+The pane only shows output from executions that have happened, and only renders the visible lines. A `log.*`
+call guarded by `barstate.islast` may not run until the live bar closes when the market is open (strategies run
+on bar close by default), so the pane can stay on "Waiting on logs". To get logs deterministically, log from
+historical bars: guard with `barstate.islastconfirmedhistory` (the last historical bar) or log on every bar.
+Format floats explicitly (`{0}` rounds; use `str.tostring(x, "#.#####")`).
 
 ### `tv_read_strategy_stats`
 

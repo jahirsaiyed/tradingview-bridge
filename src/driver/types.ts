@@ -78,6 +78,13 @@ export interface SelftestPayload {
   readonly layoutError?: string;
 }
 
+export interface PineLogsPayload {
+  lines: readonly PineLogLine[];
+  layoutRestored: boolean;
+  /** Present only when lines is empty: why the pane may be empty. */
+  emptyHint?: string;
+}
+
 export interface DriverApi {
   status(): Promise<StatusInfo>;
   openChart(args: { symbol?: string; interval?: string }): Promise<{ url: string }>;
@@ -85,7 +92,7 @@ export interface DriverApi {
   getScript(): Promise<{ source: string }>;
   compile(): Promise<CompilePayload>;
   screenshot(): Promise<{ png: Buffer }>;
-  readPineLogs(): Promise<{ lines: readonly PineLogLine[]; layoutRestored: boolean }>;
+  readPineLogs(): Promise<PineLogsPayload>;
   readStrategyStats(args: StrategyArgs): Promise<StrategyPayload>;
   removeScript(): Promise<{ removed: boolean; reason?: string }>;
   selftest(): Promise<SelftestPayload>;

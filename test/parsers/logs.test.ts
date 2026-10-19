@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_LOG_LINES, MAX_LOG_TEXT, parsePineLogs, settleLogsObservation } from '../../src/parsers/logs.js';
+import { MAX_LOG_LINES, MAX_LOG_TEXT, emptyLogsHint, parsePineLogs, settleLogsObservation } from '../../src/parsers/logs.js';
 
 describe('parsePineLogs', () => {
   it('parses a timestamped log line', () => {
@@ -50,5 +50,21 @@ describe('parsePineLogs', () => {
   it('uses the documented caps', () => {
     expect(MAX_LOG_LINES).toBe(500);
     expect(MAX_LOG_TEXT).toBe(2000);
+  });
+});
+
+describe('emptyLogsHint', () => {
+  it('explains the live-bar trap for "Waiting on logs"', () => {
+    const hint = emptyLogsHint('Waiting on logs');
+    expect(hint).toContain('barstate.islast');
+    expect(hint).toContain('barstate.islastconfirmedhistory');
+    expect(hint).toContain('log.*');
+  });
+  it('gives a hint for every known empty state', () => {
+    for (const text of ['No data', 'Waiting on logs', 'How to work with logs']) {
+      expect(emptyLogsHint(text).length).toBeGreaterThan(0);
+    }
+    expect(emptyLogsHint('No data')).not.toContain('barstate.islastconfirmedhistory');
+    expect(emptyLogsHint(null).length).toBeGreaterThan(0);
   });
 });

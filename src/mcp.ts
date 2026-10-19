@@ -24,9 +24,13 @@ const OPEN_CHART_DESCRIPTION =
 const PINE_LOGS_DESCRIPTION =
   'Read log.info/log.warning/log.error output (per bar, timestamped). Briefly switches the editor to split view ' +
   'and back; layoutRestored=false means the overlay layout could not be restored. Returns at most the last 500 ' +
-  'lines, each text cut to 2000 characters; lines=[] means the logs pane rendered with no output. Fails with ' +
-  'TIMEOUT_REPORT if the logs pane did not render within 8 s. Format floats explicitly in the script, e.g. ' +
-  'str.tostring(x, "#.#####"), since {0} rounds.';
+  'lines, each text cut to 2000 characters; lines=[] means the logs pane rendered with no output, and then ' +
+  'emptyHint explains why. Fails with TIMEOUT_REPORT if the logs pane did not render within 8 s. The pane only ' +
+  'shows output from executions that have happened and only renders the visible lines. A log.* call guarded by ' +
+  'barstate.islast may not run until the live bar closes when the market is open (strategies run on bar close by ' +
+  'default), so the pane can stay on "Waiting on logs". To get logs deterministically, log from historical bars: ' +
+  'guard with barstate.islastconfirmedhistory (last historical bar) or log on every bar. Format floats explicitly ' +
+  'in the script, e.g. str.tostring(x, "#.#####"), since {0} rounds.';
 
 const COMPILE_DESCRIPTION =
   'Compile and add/update the script on the chart. Returns compile errors (line/column/code), warnings, ' +

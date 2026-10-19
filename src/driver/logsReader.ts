@@ -1,7 +1,8 @@
 import type { Page } from 'playwright-core';
 import { SEL, TEXT } from '../selectors.js';
 import { TvError } from '../result.js';
-import { parsePineLogs, settleLogsObservation, type PineLogLine } from '../parsers/logs.js';
+import { emptyLogsHint, parsePineLogs, settleLogsObservation } from '../parsers/logs.js';
+import type { PineLogsPayload } from './types.js';
 import { ensureLayout, type LayoutOps } from './layout.js';
 import { pollUntil } from './waits.js';
 
@@ -25,22 +26,29 @@ async function collectLogLines(page: Page): Promise<string[]> {
   }, SEL.pineLogsWidget);
 }
 
-async function showsEmptyState(page: Page): Promise<boolean> {
+async function visibleEmptyState(page: Page): Promise<string | null> {
   const widget = page.locator(SEL.pineLogsWidget);
   for (const text of TEXT.pineLogsEmptyStates) {
     const visible = await widget.getByText(text, { exact: true }).first().isVisible().catch(() => false);
-    if (visible) return true;
+    if (visible) return text;
   }
-  return false;
+  return null;
+}
+
+interface LogsRead {
+  readonly rawLines: readonly string[];
+  readonly emptyText: string | null;
 }
 
 // Polls until log lines render or an empty state persists. null means the pane never rendered.
-async function waitForLogs(page: Page): Promise<readonly string[] | null> {
+async function waitForLogs(page: Page): Promise<LogsRead | null> {
   let emptySince: number | null = null;
+  let emptyText: string | null = null;
   const settled = await pollUntil(
     async () => {
       const lines = await collectLogLines(page);
-      const empty = lines.length === 0 && (await showsEmptyState(page));
+      emptyText = lines.length === 0 ? await visibleEmptyState(page) : null;
+      const empty = emptyText !== null;
       const step = settleLogsObservation({ lines, empty }, emptySince, Date.now(), EMPTY_GRACE_MS);
       emptySince = step.emptySince;
       return step.result;
@@ -48,18 +56,19 @@ async function waitForLogs(page: Page): Promise<readonly string[] | null> {
     { timeoutMs: LOGS_TIMEOUT_MS, intervalMs: LOGS_INTERVAL_MS },
   );
   // An empty state seen too late to finish its grace period still proves the pane rendered.
-  return settled ?? (emptySince !== null ? [] : null);
+  if (settled !== null) return { rawLines: settled, emptyText };
+  return emptySince !== null ? { rawLines: [], emptyText } : null;
 }
 
 export async function readPineLogs(
   page: Page,
   ops: LayoutOps,
-): Promise<{ lines: PineLogLine[]; layoutRestored: boolean }> {
+): Promise<PineLogsPayload> {
   await ensureLayout(ops, 'split');
   let layoutRestored = false;
-  let rawLines: readonly string[] | null = null;
+  let read: LogsRead | null = null;
   try {
-    rawLines = await waitForLogs(page);
+    read = await waitForLogs(page);
   } finally {
     // Restoration failure is reported, not thrown, so the data already read is not lost.
     layoutRestored = await ensureLayout(ops, 'overlay').then(
@@ -68,10 +77,11 @@ export async function readPineLogs(
     );
   }
   // Thrown only after the layout was restored: neither log lines nor the empty state rendered.
-  if (rawLines === null) {
+  if (read === null) {
     throw new TvError('TIMEOUT_REPORT', `The Pine logs pane did not render within ${LOGS_TIMEOUT_MS} ms`, {
       layoutRestored,
     });
   }
-  return { lines: parsePineLogs(rawLines), layoutRestored };
+  const lines = parsePineLogs(read.rawLines);
+  return lines.length > 0 ? { lines, layoutRestored } : { lines, layoutRestored, emptyHint: emptyLogsHint(read.emptyText) };
 }

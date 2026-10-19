@@ -44,6 +44,18 @@ export function settleLogsObservation(
   return { result: now - since >= graceMs ? [] : null, emptySince: since };
 }
 
+const WAITING_HINT =
+  'No log.* call has executed yet. A log guarded by barstate.islast does not run until the live bar closes ' +
+  'while the market is open (strategies run on bar close). Log from historical bars instead, e.g. guard with ' +
+  'barstate.islastconfirmedhistory (last historical bar) or log on every bar.';
+const GENERIC_HINT =
+  'The Pine logs pane rendered with no log lines: the script has not executed a log.* call that is visible yet.';
+
+/** Maps the observed empty-state text of the logs pane to a hint for an empty result. */
+export function emptyLogsHint(observedText: string | null): string {
+  return observedText === 'Waiting on logs' ? WAITING_HINT : GENERIC_HINT;
+}
+
 export function parsePineLogs(lines: readonly string[]): PineLogLine[] {
   return lines
     .map(parseLine)
